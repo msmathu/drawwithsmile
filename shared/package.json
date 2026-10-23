@@ -1,0 +1,24 @@
+{
+  "name": "@dws/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed Socket.IO event contracts, constants and pure helpers shared by the DrawWithSmile client and server.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.5"
+  }
+}

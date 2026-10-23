@@ -1,0 +1,108 @@
+@let dir = directory();
+<div class="container home">
+  <section class="hero">
+    <app-logo />
+    @if (dir) {
+      <p class="online"><span class="pulse"></span>{{ dir.online }} {{ dir.online === 1 ? 'player' : 'players' }} currently online</p>
+    } @else if (loadError()) {
+      <p class="muted small">Waking up the game server… this can take up to a minute.</p>
+    }
+    <p class="tagline">Draw it. Guess it. <strong>Smile!</strong></p>
+    <p class="muted intro">A free online drawing &amp; guessing game you can play in any browser. Play with people from around the world or create a room for friends.</p>
+    <nav class="links" aria-label="More">
+      <a routerLink="/how-to-play">Game rules</a>
+      <span aria-hidden="true">|</span>
+      <a routerLink="/leaderboard">Leaderboard</a>
+      <span aria-hidden="true">|</span>
+      <button type="button" class="linkish" (click)="prefs.setSound(!prefs.sound())" [attr.aria-pressed]="prefs.sound()">
+        Sound {{ prefs.sound() ? 'on 🔊' : 'off 🔇' }}
+      </button>
+    </nav>
+  </section>
+
+  <section class="card me" aria-label="Your player">
+    <div class="field grow">
+      <label for="nickname">Your nickname</label>
+      <div class="row nowrap">
+        <input id="nickname" class="input" autocomplete="nickname" [attr.maxlength]="maxNickname * 2"
+          [value]="nickname()" (input)="nickname.set($any($event.target).value)"
+          [attr.aria-invalid]="touched() && !nicknameValid()" aria-describedby="nickname-help" />
+        <button type="button" class="icon-btn" title="Random nickname" aria-label="Random nickname" (click)="shuffleName()">🎲</button>
+      </div>
+      <small id="nickname-help" class="small" [class.error]="touched() && !nicknameValid()">
+        2–{{ maxNickname }} letters or numbers. No sign-up needed.
+      </small>
+    </div>
+    <div class="field">
+      <label for="language">Words</label>
+      <select id="language" class="input" (change)="setLanguage($any($event.target).value)">
+        @for (l of languages; track l.code) {
+          <option [value]="l.code" [selected]="l.code === language()">{{ l.label }}</option>
+        }
+      </select>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button type="button" class="btn btn-primary btn-lg" (click)="quickPlay()" [disabled]="busy() !== null">
+      {{ busy() === 'quick' ? 'Finding a room…' : '✏️ Quick Play' }}
+    </button>
+    <button type="button" class="btn btn-secondary btn-lg" (click)="openCreate()" [disabled]="busy() !== null">＋ Create Room</button>
+  </div>
+
+  <section class="panel" aria-labelledby="private-title">
+    <header>
+      <h2 id="private-title">🔒 Private rooms</h2>
+      @if (dir) {
+        <span class="totals" title="Rooms · players">≡ {{ dir.totals.privateRooms }} &nbsp; 👤 {{ dir.totals.privatePlayers }}</span>
+      }
+    </header>
+    <form class="join" (submit)="joinByName($event)">
+      <label class="sr-only" for="room-name">Room name or code</label>
+      <input id="room-name" class="input" placeholder="Enter the room name or code" autocomplete="off" maxlength="40"
+        [value]="roomQuery()" (input)="roomQuery.set($any($event.target).value)" />
+      <button type="submit" class="btn btn-sm join-btn" [disabled]="!roomQuery().trim() || busy() !== null">
+        {{ busy() === 'join' ? '…' : 'Join' }}
+      </button>
+      <button type="button" class="btn btn-sm create-btn" (click)="openCreate()">Create</button>
+    </form>
+    <button type="button" class="view-all" (click)="dialog.set('private')">≡ View all private rooms</button>
+  </section>
+
+  <section class="panel" aria-labelledby="public-title">
+    <header>
+      <h2 id="public-title">🚪 Public rooms</h2>
+      @if (dir) {
+        <span class="totals" title="Rooms · players">≡ {{ dir.totals.publicRooms }} &nbsp; 👤 {{ dir.totals.publicPlayers }}</span>
+      }
+    </header>
+    <div class="list">
+      <app-room-list [rooms]="dir?.publicRooms ?? []" [disabled]="busy() !== null"
+        emptyText="No public rooms right now — press Quick Play to start one!" (pick)="joinListed($event)" />
+    </div>
+  </section>
+</div>
+
+@if (dialog() === 'create') {
+  <app-create-room-dialog [defaultLanguage]="language()" [busy]="busy() === 'create'"
+    (closed)="dialog.set(null)" (create)="createRoom($event)" />
+}
+
+@if (dialog() === 'private') {
+  <app-modal heading="🔒 Private Rooms" (closed)="dialog.set(null)">
+    <div class="stack">
+      <div class="row nowrap">
+        <label class="sr-only" for="private-search">Search by room name</label>
+        <input id="private-search" class="input" placeholder="Search by room name" [value]="privateSearch()"
+          (input)="privateSearch.set($any($event.target).value)" />
+        <button type="button" class="btn btn-secondary btn-sm" (click)="dialog.set(null); openCreate()">Create</button>
+      </div>
+      <p class="small muted note">Please report (⚑) any inappropriate room names.</p>
+      <div class="list modal-list">
+        <app-room-list [rooms]="filteredPrivate()" [reportable]="true" [disabled]="busy() !== null"
+          [emptyText]="privateSearch() ? 'No rooms match your search.' : 'No private rooms are listed right now.'"
+          (pick)="joinListed($event)" (report)="reportRoom($event)" />
+      </div>
+    </div>
+  </app-modal>
+}

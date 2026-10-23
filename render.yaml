@@ -1,0 +1,24 @@
+# Render Blueprint for the DrawWithSmile game server (free web service).
+# Render dashboard → New → Blueprint → select this repository.
+services:
+  - type: web
+    name: drawwithsmile-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CLIENT_ORIGINS
+        sync: false # e.g. https://drawwithsmile.pages.dev
+      - key: DATABASE_URL
+        sync: false # Supabase session pooler URL (port 5432)
+      - key: DATABASE_SSL
+        value: require

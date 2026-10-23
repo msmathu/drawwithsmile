@@ -1,0 +1,82 @@
+@let s = state();
+<div class="game">
+  <header class="bar">
+    <div class="round">
+      <span class="small muted">Round</span>
+      <strong>{{ s.round }}/{{ s.totalRounds }}</strong>
+    </div>
+    <div class="word">
+      <app-word-hint [hint]="s.hint" [word]="game.myWord()" />
+      <div class="status">{{ status() }}</div>
+    </div>
+    <app-countdown [deadline]="game.phaseDeadline()" [total]="phaseTotal()" [tick]="s.phase === 'drawing'" />
+  </header>
+
+  <aside class="side players" [class.open]="showPlayers()">
+    <app-player-list [players]="s.players" />
+    <button type="button" class="btn btn-sm leave" (click)="leave.emit()">Leave game</button>
+  </aside>
+
+  <section class="stage">
+    <app-canvas-board [canDraw]="canDraw()">
+      @if (s.phase === 'choosing') {
+        <div class="overlay">
+          @if (game.choices(); as choices) {
+            <h2>Choose a word <span class="muted small">({{ choiceSeconds() }}s)</span></h2>
+            <div class="choices">
+              @for (c of choices; track c.text; let i = $index) {
+                <button type="button" class="btn choice" (click)="game.chooseWord(i)">
+                  <span class="choice-word">{{ c.text }}</span>
+                  <span class="row">
+                    <span class="chip" [class]="'chip chip-' + c.difficulty">{{ c.difficulty }}</span>
+                    <span class="small muted">{{ categoryLabel(c.category) }}</span>
+                  </span>
+                </button>
+              }
+            </div>
+          } @else {
+            <p class="big">✏️ {{ drawerName() }} is choosing a word…</p>
+          }
+        </div>
+      }
+      @if (s.phase === 'turnEnd' && s.lastTurn) {
+        <div class="overlay">
+          @if (s.lastTurn.word) {
+            <p class="reveal">The word was <strong>{{ s.lastTurn.word }}</strong></p>
+          } @else {
+            <p class="reveal">Turn skipped</p>
+          }
+          <ul class="deltas">
+            @for (r of turnResults(); track r.player.id) {
+              <li>
+                <app-avatar [index]="r.player.avatar" [size]="26" />
+                <span class="nick">{{ r.player.nickname }}@if (r.drew) { ✏️ }</span>
+                <span class="delta" [class.zero]="!r.delta">+{{ r.delta }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    </app-canvas-board>
+    @if (canDraw()) {
+      <app-drawing-toolbar />
+    }
+  </section>
+
+  <section class="strip" aria-label="Scores">
+    <button type="button" class="btn btn-sm" (click)="showPlayers.set(!showPlayers())" [attr.aria-expanded]="showPlayers()">
+      👥 {{ showPlayers() ? 'Hide' : 'Players' }}
+    </button>
+    @for (p of s.players; track p.id) {
+      <span class="mini" [class.drawing]="p.isDrawer" [class.guessed]="p.hasGuessed" [class.offline]="!p.connected">
+        <app-avatar [index]="p.avatar" [size]="22" />
+        <span class="mini-name">{{ p.nickname }}</span>
+        <strong>{{ p.score }}</strong>
+      </span>
+    }
+  </section>
+
+  <section class="side chat">
+    <app-chat-panel [messages]="game.messages()" [placeholder]="chatPlaceholder()" (send)="game.sendChat($event)" />
+  </section>
+</div>

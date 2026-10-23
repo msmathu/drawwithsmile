@@ -1,0 +1,179 @@
+.home {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 40px;
+}
+
+.home > * {
+  width: 100%;
+  max-width: 520px;
+}
+
+.hero {
+  text-align: center;
+  margin-top: 4px;
+}
+
+.online {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 1.15rem;
+  margin: 6px 0 0;
+}
+
+.pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 0 rgba(31, 157, 99, 0.6);
+  animation: ping 1.6s infinite;
+}
+
+@keyframes ping {
+  to {
+    box-shadow: 0 0 0 10px rgba(31, 157, 99, 0);
+  }
+}
+
+.tagline {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 6px 0 2px;
+}
+
+.intro {
+  margin: 0 auto 6px;
+  max-width: 440px;
+  font-size: 0.95rem;
+}
+
+.links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--sky);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.me {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.grow {
+  flex: 1 1 240px;
+}
+
+.nowrap {
+  flex-wrap: nowrap;
+}
+
+.error {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 380px) {
+  .actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--grape);
+  color: #fff;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.totals {
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.join {
+  display: flex;
+  gap: 6px;
+  padding: 12px 12px 4px;
+}
+
+.join .input {
+  min-height: 40px;
+}
+
+.join-btn {
+  background: var(--success);
+  color: #fff;
+}
+
+.create-btn {
+  background: var(--grape);
+  color: #fff;
+}
+
+.view-all {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 6px 0 10px;
+  font-weight: 700;
+  color: var(--grape);
+  cursor: pointer;
+}
+
+.list {
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.modal-list {
+  max-height: 50dvh;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-sm);
+}
+
+.note {
+  margin: 0;
+  text-align: center;
+}

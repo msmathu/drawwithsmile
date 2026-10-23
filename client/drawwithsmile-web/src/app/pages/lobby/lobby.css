@@ -1,0 +1,135 @@
+.lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.head h1 {
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+.status {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+.status.go {
+  color: var(--success);
+}
+
+.code-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.code {
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: 4px;
+  padding: 2px 14px;
+  border: 2px dashed var(--ink);
+  border-radius: 12px;
+  background: #fff7dc;
+  cursor: copy;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .grid {
+    grid-template-columns: 280px 1fr 320px;
+    align-items: start;
+  }
+  .chat {
+    height: 520px;
+  }
+}
+
+.chat {
+  display: flex;
+  height: 340px;
+}
+
+.chat app-chat-panel {
+  flex: 1;
+}
+
+h2 {
+  font-size: 1.2rem;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.cats {
+  border: 0;
+  padding: 0;
+  margin: 14px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cats legend {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.toggle {
+  cursor: pointer;
+  min-height: 34px;
+}
+
+.toggle[aria-pressed='true'] {
+  background: var(--sun);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.summary dt {
+  font-weight: 700;
+}
+
+.summary dd {
+  margin: 0;
+}
+
+.cap {
+  text-transform: capitalize;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.kind {
+  margin: 2px 0 0;
+  font-weight: 700;
+  color: var(--grape);
+}

@@ -1,0 +1,7 @@
+{
+  "appId": "com.drawwithsmile.app",
+  "appName": "DrawWithSmile",
+  "webDir": "dist/drawwithsmile-web/browser",
+  "android": { "allowMixedContent": false },
+  "server": { "androidScheme": "https" }
+}

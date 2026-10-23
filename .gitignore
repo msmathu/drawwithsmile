@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.angular/
+coverage/
+.data/
+*.log
+.env
+.env.*
+!.env.example
+client/drawwithsmile-web/android/
+client/drawwithsmile-web/ios/
+.DS_Store
+Thumbs.db

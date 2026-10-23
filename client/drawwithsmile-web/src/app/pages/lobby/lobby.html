@@ -1,0 +1,92 @@
+@let s = state();
+<div class="container lobby">
+  <section class="card head">
+    <div>
+      <h1>{{ s.name }}</h1>
+      <p class="kind">{{ isPublic() ? '🚪 Public room' : (s.listed ? '🔒 Private room · listed' : '🔒 Private room · invite only') }}</p>
+      @if (isPublic()) {
+        @if (autoStartSeconds() !== null) {
+          <p class="status go">Game starts in {{ autoStartSeconds() }}s…</p>
+        } @else {
+          <p class="status">Waiting for more players ({{ connected() }}/{{ s.settings.maxPlayers }})…</p>
+        }
+      } @else {
+        <p class="muted">Share the code with friends. {{ game.isHost() ? 'Start when everyone is here.' : 'Waiting for ' + host() + ' to start.' }}</p>
+      }
+    </div>
+    @if (!isPublic()) {
+      <div class="code-box">
+        <span class="small muted">Room code</span>
+        <button type="button" class="code" (click)="copyCode()" title="Copy code">{{ s.code }}</button>
+        <button type="button" class="btn btn-sm" (click)="share()">🔗 Share invite</button>
+      </div>
+    }
+  </section>
+
+  <div class="grid">
+    <section class="card players">
+      <h2>Players <span class="muted small">{{ s.players.length }}/{{ s.settings.maxPlayers }}</span></h2>
+      <app-player-list [players]="s.players" [showScores]="false" />
+    </section>
+
+    <section class="card settings">
+      <h2>Settings</h2>
+      @if (canEdit()) {
+        <div class="form">
+          <label class="field">Draw time
+            <select class="input" (change)="setNumber('drawTime', $any($event.target).value)">
+              @for (t of drawTimes; track t) { <option [value]="t" [selected]="t === s.settings.drawTime">{{ t }} seconds</option> }
+            </select>
+          </label>
+          <label class="field">Rounds
+            <select class="input" (change)="setNumber('rounds', $any($event.target).value)">
+              @for (r of roundOptions; track r) { <option [value]="r" [selected]="r === s.settings.rounds">{{ r }}</option> }
+            </select>
+          </label>
+          <label class="field">Words
+            <select class="input" (change)="setDifficulty($any($event.target).value)">
+              @for (d of difficulties; track d.value) { <option [value]="d.value" [selected]="d.value === s.settings.difficulty">{{ d.label }}</option> }
+            </select>
+          </label>
+          <label class="field">Language
+            <select class="input" (change)="setLanguage($any($event.target).value)">
+              @for (l of languages; track l.code) { <option [value]="l.code" [selected]="l.code === s.settings.language">{{ l.label }}</option> }
+            </select>
+          </label>
+          <label class="field">Max players
+            <select class="input" (change)="setNumber('maxPlayers', $any($event.target).value)">
+              @for (n of playerOptions; track n) { <option [value]="n" [selected]="n === s.settings.maxPlayers">{{ n }}</option> }
+            </select>
+          </label>
+        </div>
+        <fieldset class="cats">
+          <legend>Categories <span class="muted small">(none selected = all)</span></legend>
+          @for (c of categories; track c.slug) {
+            <button type="button" class="chip toggle" [attr.aria-pressed]="s.settings.categories.includes(c.slug)"
+              (click)="toggleCategory(c.slug)">{{ c.label[s.settings.language] }}</button>
+          }
+        </fieldset>
+      } @else {
+        <dl class="summary">
+          <dt>Draw time</dt><dd>{{ s.settings.drawTime }} s</dd>
+          <dt>Rounds</dt><dd>{{ s.settings.rounds }}</dd>
+          <dt>Words</dt><dd class="cap">{{ s.settings.difficulty }}</dd>
+          <dt>Language</dt><dd>{{ languageLabel() }}</dd>
+          <dt>Categories</dt><dd>{{ categoryLabel() }}</dd>
+        </dl>
+      }
+      <div class="actions">
+        @if (canEdit()) {
+          <button type="button" class="btn btn-primary btn-lg" [disabled]="!canStart() || starting()" (click)="start()">
+            {{ canStart() ? '▶ Start game' : 'Need 2+ players' }}
+          </button>
+        }
+        <button type="button" class="btn" (click)="leave.emit()">Leave room</button>
+      </div>
+    </section>
+
+    <section class="chat">
+      <app-chat-panel [messages]="game.messages()" (send)="game.sendChat($event)" />
+    </section>
+  </div>
+</div>

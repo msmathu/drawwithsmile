@@ -1,0 +1,232 @@
+:host {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.game {
+  flex: 1;
+  display: grid;
+  gap: 10px;
+  padding: 0 10px 10px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'bar' 'stage' 'strip' 'players' 'chat';
+  grid-template-rows: auto auto auto auto minmax(220px, 1fr);
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  min-height: 0;
+}
+
+.bar {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.round {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  min-width: 52px;
+}
+
+.word {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+}
+
+.status {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.stage {
+  grid-area: stage;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.players {
+  grid-area: players;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.players.open {
+  display: flex;
+}
+
+.chat {
+  grid-area: chat;
+  display: flex;
+  min-height: 0;
+}
+
+.chat app-chat-panel {
+  flex: 1;
+}
+
+.strip {
+  grid-area: strip;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 3px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.mini.drawing {
+  background: #e3eeff;
+}
+
+.mini.guessed {
+  background: #dcf8ea;
+}
+
+.mini.offline {
+  opacity: 0.5;
+}
+
+.mini-name {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leave {
+  align-self: flex-start;
+}
+
+/* Overlays drawn on top of the canvas */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 248, 236, 0.94);
+  text-align: center;
+  overflow-y: auto;
+}
+
+.overlay h2 {
+  margin: 0;
+}
+
+.big {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.choice {
+  flex-direction: column;
+  border-radius: 16px;
+  min-width: 140px;
+  padding: 10px 16px;
+}
+
+.choice-word {
+  font-size: 1.3rem;
+}
+
+.reveal {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.reveal strong {
+  color: var(--teal);
+  font-size: 1.6rem;
+}
+
+.deltas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(260px, 90%);
+}
+
+.deltas li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  background: #fff;
+  border-radius: 10px;
+  border: 2px solid var(--ink);
+}
+
+.deltas .nick {
+  flex: 1;
+  text-align: left;
+  font-weight: 600;
+}
+
+.delta {
+  font-weight: 800;
+  color: var(--success);
+}
+
+.delta.zero {
+  color: var(--ink-soft);
+}
+
+@media (min-width: 960px) {
+  .game {
+    grid-template-columns: 230px minmax(0, 1fr) 320px;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: 'bar bar bar' 'players stage chat';
+    height: calc(100dvh - 64px);
+  }
+  .players {
+    display: flex;
+    overflow-y: auto;
+  }
+  .strip {
+    display: none;
+  }
+  .stage {
+    max-width: calc((100dvh - 230px) * 4 / 3);
+  }
+}
