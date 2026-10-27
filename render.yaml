@@ -6,6 +6,8 @@ services:
     name: drawwithsmile
     runtime: node
     plan: free
+    # Close to players in India/Asia and to the Supabase database (Tokyo).
+    region: singapore
     # --include=dev: the build tools (TypeScript, Angular CLI) are dev dependencies, and
     # npm skips those when NODE_ENV=production.
     buildCommand: npm ci --include=dev && npm run build
