@@ -22,11 +22,11 @@ What this means for players:
 
 ## Easiest: one Render service (game + website) — recommended to start
 
-\`render.yaml\` is set up so **one free Render web service** builds everything, runs the game server and serves the website from the same address. That gives you one link to share and no cross-site settings. The server allows its own Render address automatically (\`RENDER_EXTERNAL_URL\`).
+`render.yaml` is set up so **one free Render web service** builds everything, runs the game server and serves the website from the same address. That gives you one link to share and no cross-site settings. The server allows its own Render address automatically (`RENDER_EXTERNAL_URL`).
 
 1. (Optional, recommended) Do step 1 below to create a free Supabase database and copy its Session pooler URI.
-2. Render → **New → Blueprint** → connect GitHub → pick this repository → **Apply**. When asked, paste the URI into \`DATABASE_URL\` (or leave it empty to play without saved scores/bans).
-3. Wait for the first build (about 5–10 minutes), then open \`https://<service-name>.onrender.com\` and share it.
+2. Render → **New → Blueprint** → connect GitHub → pick this repository → **Apply**. When asked, paste the URI into `DATABASE_URL` (or leave it empty to play without saved scores/bans).
+3. Wait for the first build (about 5–10 minutes), then open `https://<service-name>.onrender.com` and share it.
 
 Steps 2 and 3 below describe the alternative split setup (Render for the server + Cloudflare Pages for the website). It loads the page faster while the free server is waking up, but needs more configuration.
 
