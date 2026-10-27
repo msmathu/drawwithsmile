@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /room/
+Disallow: /profile
+
+Sitemap: https://drawwithsmile.onrender.com/sitemap.xml

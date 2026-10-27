@@ -1,7 +1,7 @@
 import type { Routes } from '@angular/router';
 
 export const routes: Routes = [
-  { path: '', loadComponent: () => import('./pages/home/home-page').then((m) => m.HomePage), title: 'DrawWithSmile' },
+  { path: '', loadComponent: () => import('./pages/home/home-page').then((m) => m.HomePage), title: 'DrawWithSmile — Free online drawing & guessing game' },
   {
     path: 'room/:code',
     loadComponent: () => import('./pages/room/room-page').then((m) => m.RoomPage),
