@@ -209,3 +209,22 @@ describe('Banning during a 4-player game', () => {
     expect(h.room.phase).toBe('gameEnd');
   });
 });
+
+describe('Ban and kick announcements', () => {
+  it('shows one clear chat line to everyone left in the room, including the admin', () => {
+    const h = createRoomHarness('private', { rounds: 1 });
+    h.room.join(P1, 'Admin');
+    h.room.join(P2, 'Ben');
+    h.room.join(P3, 'Cat');
+    h.room.join(P4, 'Dan');
+    h.room.startGame(P1);
+    const from = h.sent.length;
+    h.room.kick(P1, P4, 5);
+    h.room.kick(P1, P3, false);
+    const lines = h.sent
+      .slice(from)
+      .filter((e) => e.event === 'chat:message' && e.to === 'all')
+      .map((e) => (e.payload as { text: string }).text);
+    expect(lines).toEqual(['Dan was banned from this room for 5 minutes.', 'Cat was kicked by the room admin.']);
+  });
+});

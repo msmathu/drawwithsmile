@@ -435,3 +435,29 @@ describe('state shape', () => {
     expect(JSON.stringify(state)).not.toContain(`"${h.room.currentWord}"`);
   });
 });
+
+describe('Chat visibility while drawing', () => {
+  it('shows the drawer\'s chat to everyone, but keeps chat from players who guessed private', () => {
+    const h = createRoomHarness('private', { rounds: 1 });
+    h.room.join(P1, 'Drawer');
+    h.room.join(P2, 'Guesser');
+    h.room.join(P3, 'Fast');
+    h.room.startGame(P1);
+    h.room.chooseWord(P1, 0);
+    h.room.handleChat(P1, 'hiii, good luck everyone');
+    const drawerMsg = h.sent.filter((e) => e.event === 'chat:message' && (e.payload as ChatMessage).text === 'hiii, good luck everyone');
+    expect(drawerMsg).toHaveLength(1);
+    expect(drawerMsg[0]!.to).toBe('all');
+    expect((drawerMsg[0]!.payload as ChatMessage).kind).toBe('chat');
+
+    // The drawer still can't type the answer.
+    h.room.handleChat(P1, `it is ${h.room.currentWord}`);
+    expect(h.sent.some((e) => e.to === 'all' && JSON.stringify(e.payload).includes(`it is ${h.room.currentWord}`))).toBe(false);
+
+    h.room.handleChat(P3, h.room.currentWord!);
+    h.room.handleChat(P3, 'that was easy');
+    const secret = h.sent.find((e) => (e.payload as ChatMessage).text === 'that was easy')!;
+    expect(secret.to).not.toBe('all');
+    expect(secret.to).not.toContain(P2);
+  });
+});

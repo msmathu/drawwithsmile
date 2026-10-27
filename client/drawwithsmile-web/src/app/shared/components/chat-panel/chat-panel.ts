@@ -26,6 +26,9 @@ import { LIMITS, type ChatMessage } from '@dws/shared';
               <strong>{{ m.nickname }}:</strong>
             }
             {{ m.text }}
+            @if (m.kind === 'guessed-chat') {
+              <span class="private-note" title="Only players who already guessed the word (and the drawer) can see this">🔒 only players who guessed see this</span>
+            }
           </li>
         } @empty {
           <li class="msg system">Say hi! 👋</li>
@@ -54,6 +57,7 @@ import { LIMITS, type ChatMessage } from '@dws/shared';
     .close { background: #fff1c2; font-weight: 700; }
     .warning { background: #ffe1e1; color: #a1262a; font-weight: 600; }
     .guessed-chat { color: #0f6b40; }
+    .private-note { display: block; font-size: 0.7rem; font-weight: 600; opacity: 0.75; }
     .composer { display: flex; gap: 8px; padding: 8px; border-top: 2px solid var(--line); }
     .composer .input { min-height: 42px; min-width: 0; }
     @media (max-width: 600px) {

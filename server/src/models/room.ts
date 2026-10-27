@@ -381,8 +381,18 @@ export class Room {
               : null;
     this.deps.output.playerRemoved(playerId, message ?? kickReason);
 
-    const verb = reason === 'left' || reason === 'timeout' || reason === 'replaced' ? 'left the room' : 'was removed';
-    this.system(`${p.nickname} ${verb}.`);
+    // One clear chat line for everyone; admin bans are announced by kick() with the ban length.
+    const announcement: Record<RemoveReason, string | null> = {
+      left: 'left the room',
+      timeout: 'left the room',
+      replaced: 'left the room',
+      kicked: 'was kicked by the room admin',
+      banned: null,
+      'vote-kicked': 'was removed by a player vote',
+      'auto-banned': 'was banned for repeated reports',
+    };
+    const verb = announcement[reason];
+    if (verb) this.system(`${p.nickname} ${verb}.`);
 
     if (this.players.size === 0) {
       this.dispose();
@@ -620,6 +630,12 @@ export class Room {
           this.privateMessage(playerId, 'warning', 'Your message was hidden because it contains the word.');
           return;
         }
+        // The drawer (and fellow artists) chat with everyone; the answer itself is blocked above.
+        if (this.artists.includes(playerId)) {
+          this.broadcast(this.message('chat', censor(text), p));
+          return;
+        }
+        // Players who already guessed only talk among themselves and the artists, so they can't leak it.
         const audience = [...this.players.values()].filter((x) => this.artists.includes(x.id) || x.hasGuessed).map((x) => x.id);
         this.deps.output.toPlayers(audience, 'chat:message', this.message('guessed-chat', censor(text), p));
         return;
@@ -1018,8 +1034,8 @@ export class Room {
       message = `The room admin banned you from this room for ${banMinutes} minutes. You can still play in other rooms.`;
     }
     this.deps.hooks?.onModeration?.({ roomCode: this.code, actorId: byId, targetId, action: banMinutes === false ? 'kick' : 'ban' });
+    if (banMinutes !== false) this.system(`${target.nickname} was banned from this room for ${banMinutes} minutes.`);
     this.removePlayer(targetId, banMinutes === false ? 'kicked' : 'banned', message);
-    if (banMinutes !== false && !this.disposed) this.system(`${target.nickname} was banned from this room for ${banMinutes} minutes.`);
   }
 
   setMuted(byId: string, targetId: string, muted: boolean): void {
