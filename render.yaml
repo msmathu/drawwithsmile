@@ -1,11 +1,14 @@
-# Render Blueprint for the DrawWithSmile game server (free web service).
-# Render dashboard → New → Blueprint → select this repository.
+# Render Blueprint: ONE free web service that runs the game server AND serves the website.
+# Render dashboard → New → Blueprint → select this repository → fill in DATABASE_URL → Apply.
+# Your game will be at https://<service-name>.onrender.com
 services:
   - type: web
-    name: drawwithsmile-api
+    name: drawwithsmile
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build:server
+    # --include=dev: the build tools (TypeScript, Angular CLI) are dev dependencies, and
+    # npm skips those when NODE_ENV=production.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
@@ -16,9 +19,15 @@ services:
         value: "1"
       - key: SESSION_SECRET
         generateValue: true
+      # The website is served by this same service (same address, no CORS setup needed).
+      - key: SERVE_CLIENT_DIR
+        value: ../client/drawwithsmile-web/dist/drawwithsmile-web/browser
+      # Optional: extra allowed origins, e.g. a Cloudflare Pages or custom domain address.
       - key: CLIENT_ORIGINS
-        sync: false # e.g. https://drawwithsmile.pages.dev
+        value: ""
+      # Supabase "Session pooler" connection string (port 5432). Leave empty to run without
+      # saved scores/bans (data is then lost whenever the free service restarts).
       - key: DATABASE_URL
-        sync: false # Supabase session pooler URL (port 5432)
+        sync: false
       - key: DATABASE_SSL
         value: require

@@ -80,9 +80,11 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     port: e.PORT,
     host: e.HOST,
     logLevel: e.LOG_LEVEL,
-    clientOrigins: e.CLIENT_ORIGINS.split(',')
+    // Render sets RENDER_EXTERNAL_URL (e.g. https://drawwithsmile.onrender.com); when the server
+    // also serves the website, that address must be allowed without any manual setup.
+    clientOrigins: [...e.CLIENT_ORIGINS.split(','), source['RENDER_EXTERNAL_URL'] ?? '']
       .map((o) => o.trim().replace(/\/+$/, ''))
-      .filter(Boolean),
+      .filter((o, i, all) => o !== '' && all.indexOf(o) === i),
     sessionSecret: e.SESSION_SECRET ?? DEV_SECRET,
     trustProxy: e.TRUST_PROXY,
     db: {
