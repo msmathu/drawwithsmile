@@ -5,12 +5,14 @@ import type {
   ChatMessage,
   ClientToServerEvents,
   DrawOp,
+  PlayerProfile,
   RoomDirectory,
   RoomState,
   ServerToClientEvents,
   SessionInfo,
   StrokeChunk,
 } from '@dws/shared';
+import { DEFAULT_SETTINGS } from '@dws/shared';
 import { loadConfig } from '../src/config/env.js';
 import { createDatabase, type Database } from '../src/database/db.js';
 import { runMigrations } from '../src/database/migrate.js';
@@ -26,7 +28,14 @@ let baseUrl: string;
 const sockets: ClientSocket[] = [];
 
 beforeAll(async () => {
-  const config = loadConfig({ NODE_ENV: 'test', SESSION_SECRET: 'integration-test-secret-integration', CLIENT_ORIGINS: '*' });
+  // All test clients share 127.0.0.1, so per-IP limits are raised for this suite.
+  const config = loadConfig({
+    NODE_ENV: 'test',
+    SESSION_SECRET: 'integration-test-secret-integration',
+    CLIENT_ORIGINS: '*',
+    ROOM_ACTION_BURST: '1000',
+    MAX_CONNECTIONS_PER_IP: '1000',
+  });
   db = await createDatabase({ ...config.db, mode: 'memory' });
   await runMigrations(db, silentLogger);
   await seedDatabase(db, silentLogger);
@@ -183,11 +192,18 @@ describe('Socket.IO multiplayer', () => {
     expect(guesser.log.chunks[0]!.id).toBe('stroke001');
     expect(drawer.log.chunks).toHaveLength(0);
 
+    // Paint-bucket fills reach the guesser as a single small op.
+    const fills: unknown[] = [];
+    guesser.socket.on('draw:fill', (op) => fills.push(op));
+    drawer.socket.emit('draw:fill', { id: 'fill0001', color: '#facc15', x: 150, y: 150 });
+    await until(() => fills.length === 1);
+    expect(fills[0]).toEqual({ kind: 'fill', id: 'fill0001', color: '#facc15', x: 150, y: 150 });
+
     // Reconnecting with the same session restores room, drawing and chat.
     guesser.socket.disconnect();
     const back = await client(guesser.session);
     const history = await until(() => back.log.histories.at(-1));
-    expect(history.map((op) => op.id)).toEqual(['stroke001']);
+    expect(history.map((op) => op.id)).toEqual(['stroke001', 'fill0001']);
     await until(() => latest(back.log)?.code === code);
 
     // A wrong guess is broadcast, the right one is not.
@@ -207,17 +223,22 @@ describe('Socket.IO multiplayer', () => {
     expect(cheat.ok).toBe(false);
   });
 
-  it('lets the host kick a player, who is told why', async () => {
+  it('lets the room admin ban a player temporarily from that room only', async () => {
     const host = await client();
     const troll = await client();
-    const created = await emit<{ code: string }>(host.socket, 'room:create', { nickname: 'Boss' });
+    const created = await emit<{ code: string }>(host.socket, 'room:create', { nickname: 'Boss', visibility: 'public' });
     const code = created.ok ? created.data.code : '';
     await emit(troll.socket, 'room:join', { code, nickname: 'Troll' });
+    const forever = await emit(host.socket, 'mod:ban', { playerId: troll.session.playerId });
+    expect(forever).toMatchObject({ ok: false, error: { code: 'bad-request' } }); // no time limit = refused
     const kicked = new Promise<{ reason: string }>((resolve) => troll.socket.once('room:kicked', resolve));
-    expect((await emit(host.socket, 'mod:ban', { playerId: troll.session.playerId })).ok).toBe(true);
-    expect((await kicked).reason).toMatch(/banned/);
+    expect((await emit(host.socket, 'mod:ban', { playerId: troll.session.playerId, minutes: 5 })).ok).toBe(true);
+    expect((await kicked).reason).toMatch(/for 5 minutes/);
     const retry = await emit(troll.socket, 'room:join', { code, nickname: 'Troll' });
-    expect(retry).toMatchObject({ ok: false, error: { code: 'banned' } });
+    expect(retry).toMatchObject({ ok: false, error: { code: 'banned', message: expect.stringMatching(/5 more minutes/) } });
+    // Other rooms are unaffected.
+    const elsewhere = await emit(troll.socket, 'room:create', { nickname: 'Troll' });
+    expect(elsewhere.ok).toBe(true);
     const report = await emit(host.socket, 'mod:report', { playerId: troll.session.playerId, reason: 'spam' });
     expect(report).toMatchObject({ ok: false, error: { code: 'not-in-room' } });
   });
@@ -261,23 +282,74 @@ describe('Room browser', () => {
   });
 });
 
-describe('Persistence', () => {
-  it('saves finished games, statistics, achievements and the leaderboard', async () => {
+describe('Reports and automatic bans', () => {
+  it('bans a player permanently once MORE than 10 different players report them', async () => {
+    const host = await client();
+    const created = await emit<{ code: string }>(host.socket, 'room:create', { nickname: 'Host', settings: { maxPlayers: 16 } });
+    const code = created.ok ? created.data.code : '';
+    const troll = await client();
+    expect((await emit(troll.socket, 'room:join', { code, nickname: 'Troll' })).ok).toBe(true);
+    const reporters = [host];
+    for (let i = 1; i <= 10; i++) {
+      const r = await client();
+      expect((await emit(r.socket, 'room:join', { code, nickname: `Reporter${i}` })).ok).toBe(true);
+      reporters.push(r);
+    }
+    const kicked = new Promise<{ reason: string }>((resolve) => troll.socket.once('room:kicked', resolve));
+
+    // 10 reports: still allowed to play. A repeat report from the same player is rejected.
+    for (const r of reporters.slice(0, 10)) {
+      expect((await emit(r.socket, 'mod:report', { playerId: troll.session.playerId, reason: 'offensive' })).ok).toBe(true);
+    }
+    const repeat = await emit(host.socket, 'mod:report', { playerId: troll.session.playerId, reason: 'spam' });
+    expect(repeat).toMatchObject({ ok: false, error: { message: expect.stringMatching(/already reported/) } });
+    expect(troll.socket.connected).toBe(true);
+
+    // The 11th different reporter crosses the limit.
+    expect((await emit(reporters[10]!.socket, 'mod:report', { playerId: troll.session.playerId, reason: 'offensive' })).ok).toBe(true);
+    expect((await kicked).reason).toMatch(/banned from DrawWithSmile/);
+    await until(() => !troll.socket.connected);
+    const state = await until(() => latest(host.log)?.players.every((p) => p.id !== troll.session.playerId) && latest(host.log));
+    expect(state.players).toHaveLength(11);
+
+    // Reconnecting or asking for a new session with the same identity is refused.
+    const retry: ClientSocket = connect(baseUrl, { auth: { token: troll.session.token }, transports: ['websocket'], forceNew: true });
+    sockets.push(retry);
+    const err = await new Promise<Error>((resolve) => retry.once('connect_error', resolve));
+    expect(err.message).toBe('banned');
+    const session = await fetch(`${baseUrl}/api/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: troll.session.token }),
+    });
+    expect(session.status).toBe(403);
+    const bans = await db.query<{ player_id: string }>('SELECT player_id FROM player_bans');
+    expect(bans.rows.map((b) => b.player_id)).toContain(troll.session.playerId);
+  });
+});
+
+describe('Persistence, rewards and profiles', () => {
+  it('saves games and stats, grants achievements, and only lets players pick unlocked rewards', async () => {
+    const winner = await newSession();
+    const second = await newSession();
+    const zero = { quickGuesses: 0, perfectDrawings: 0, collabDrawings: 0, chaosTurns: 0, votesReceived: 0 };
     server.persistence.recordGame({
       sessionId: '9d0f3a52-6a8a-4a5e-9a51-6d1f1f0b2c11',
       roomCode: 'ABCDEFGH',
       visibility: 'private',
-      language: 'en',
+      language: 'mixed',
       totalRounds: 1,
       drawTime: 60,
       completed: true,
       startedAt: new Date(Date.now() - 60_000),
       endedAt: new Date(),
+      rules: { ...DEFAULT_SETTINGS, teams: true, language: 'mixed' },
       turns: [
         {
           round: 1,
           turnNumber: 1,
-          drawerId: '11111111-1111-4111-8111-111111111111',
+          drawerId: winner.playerId,
+          artistIds: [winner.playerId],
           wordId: null,
           wordText: 'cat',
           correctGuesses: 1,
@@ -287,8 +359,8 @@ describe('Persistence', () => {
         },
       ],
       players: [
-        { playerId: '11111111-1111-4111-8111-111111111111', nickname: 'Winner', finalScore: 1200, rank: 1, correctGuesses: 0, drawings: 1, isWinner: true },
-        { playerId: '22222222-2222-4222-8222-222222222222', nickname: 'Second', finalScore: 150, rank: 2, correctGuesses: 1, drawings: 0, isWinner: false },
+        { ...zero, playerId: winner.playerId, nickname: 'Winner', finalScore: 1200, rank: 1, correctGuesses: 0, drawings: 1, isWinner: true, team: 0, teamWin: true, votesReceived: 3 },
+        { ...zero, playerId: second.playerId, nickname: 'Second', finalScore: 150, rank: 2, correctGuesses: 1, drawings: 0, isWinner: false, team: 1, teamWin: false },
       ],
     });
     await server.persistence.flush();
@@ -296,9 +368,34 @@ describe('Persistence', () => {
     const board = (await (await fetch(`${baseUrl}/api/leaderboard`)).json()) as { entries: { nickname: string }[] };
     expect(board.entries.map((e) => e.nickname)).toEqual(['Winner', 'Second']);
 
-    const stats = await server.persistence.playerStats('11111111-1111-4111-8111-111111111111');
-    expect(stats).toMatchObject({ gamesPlayed: 1, wins: 1, totalScore: 1200, bestScore: 1200 });
+    const stats = await server.persistence.playerStats(winner.playerId);
+    expect(stats).toMatchObject({ gamesPlayed: 1, wins: 1, totalScore: 1200, bestScore: 1200, teamWins: 1, votesReceived: 3 });
     const earned = stats!.achievements.filter((a) => a.earnedAt).map((a) => a.code);
-    expect(earned.sort()).toEqual(['FIRST_GAME', 'FIRST_WIN', 'HIGH_SCORER']);
+    expect(earned.sort()).toEqual(['FIRST_GAME', 'FIRST_WIN', 'HIGH_SCORER', 'TEAM_CHAMPION']);
+
+    // Profile: unlocks are derived from those achievements on the server.
+    const auth = { authorization: `Bearer ${winner.token}`, 'content-type': 'application/json' };
+    const profile = (await (await fetch(`${baseUrl}/api/me/profile`, { headers: auth })).json()) as PlayerProfile;
+    expect(profile.unlockedAvatars).toEqual(expect.arrayContaining([12, 13, 16, 17]));
+    expect(profile.unlockedAvatars).not.toContain(21);
+    expect(profile.unlockedTitles.sort()).toEqual(['beginner-artist', 'champion', 'team-champion']);
+
+    const locked = await fetch(`${baseUrl}/api/me/profile`, { method: 'POST', headers: auth, body: JSON.stringify({ avatarId: 21 }) });
+    expect(locked.status).toBe(400);
+    const lockedTitle = await fetch(`${baseUrl}/api/me/profile`, { method: 'POST', headers: auth, body: JSON.stringify({ titleId: 'veteran' }) });
+    expect(lockedTitle.status).toBe(400);
+    const ok = await fetch(`${baseUrl}/api/me/profile`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ avatarId: 17, titleId: 'team-champion', nickname: 'Winner' }),
+    });
+    expect(ok.status).toBe(200);
+
+    // The chosen look is used when the player joins a room.
+    const player = await client(winner);
+    const created = await emit<{ code: string }>(player.socket, 'room:create', { nickname: 'Winner' });
+    expect(created.ok).toBe(true);
+    const me = await until(() => latest(player.log)?.players.find((p) => p.id === winner.playerId && p.avatar === 17));
+    expect(me.title).toBe('team-champion');
   });
 });

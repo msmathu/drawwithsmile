@@ -23,7 +23,17 @@ import { Logo } from './shared/components/logo/logo';
         }
       }
     </header>
-    <main><router-outlet /></main>
+    @if (socket.status() === 'banned') {
+      <main class="banned" role="alert">
+        <div class="card">
+          <h1>🚫 You have been banned</h1>
+          <p>Many players reported this account, so it can no longer play DrawWithSmile.</p>
+          <p class="small muted">If you think this is a mistake, contact the site owner.</p>
+        </div>
+      </main>
+    } @else {
+      <main><router-outlet /></main>
+    }
     <div class="toasts" aria-live="polite">
       @for (t of toast.toasts(); track t.id) {
         <button type="button" class="toast" [class]="'toast ' + t.kind" (click)="toast.dismiss(t.id)">{{ t.text }}</button>
@@ -31,13 +41,16 @@ import { Logo } from './shared/components/logo/logo';
     </div>
   `,
   styles: `
-    :host { display: flex; flex-direction: column; min-height: 100dvh; }
+    /* Exactly one screen tall: pages scroll inside <main>, and the game can fill the space under the header. */
+    :host { display: flex; flex-direction: column; height: 100dvh; }
     .topbar {
       display: flex; align-items: center; justify-content: space-between;
       padding: 8px 16px; padding-top: max(8px, env(safe-area-inset-top));
     }
     .brand { text-decoration: none; }
-    main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    main { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+    .banned { align-items: center; justify-content: center; padding: 16px; text-align: center; }
+    .banned .card { max-width: 440px; }
     .status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 700; }
     .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink); }
     .ok .dot { background: var(--success); }

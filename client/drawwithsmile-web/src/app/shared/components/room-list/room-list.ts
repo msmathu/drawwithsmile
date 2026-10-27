@@ -27,7 +27,7 @@ export function roomStatus(room: RoomListing): string {
               <span class="name">{{ room.name }}</span>
               <span class="status">
                 {{ status(room) }}
-                @if (room.language === 'ta') { <span class="lang">தமிழ்</span> }
+                @if (room.language === 'ta') { <span class="lang">தமிழ்</span> } @else if (room.language === 'mixed') { <span class="lang">EN + தமிழ்</span> }
               </span>
             </span>
             <span class="count" title="Players">👤<br />{{ room.players }}/{{ room.maxPlayers }}</span>

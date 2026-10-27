@@ -30,6 +30,7 @@ export class SessionService {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: this.token }),
     });
+    if (res.status === 403) throw new Error('banned');
     if (!res.ok) throw new Error(`Session request failed (${res.status})`);
     const session = (await res.json()) as SessionInfo;
     this.token = session.token;

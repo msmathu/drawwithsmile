@@ -14,6 +14,8 @@
       <span aria-hidden="true">|</span>
       <a routerLink="/leaderboard">Leaderboard</a>
       <span aria-hidden="true">|</span>
+      <a routerLink="/profile">My avatar &amp; title</a>
+      <span aria-hidden="true">|</span>
       <button type="button" class="linkish" (click)="prefs.setSound(!prefs.sound())" [attr.aria-pressed]="prefs.sound()">
         Sound {{ prefs.sound() ? 'on 🔊' : 'off 🔇' }}
       </button>

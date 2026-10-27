@@ -24,6 +24,7 @@ import { DrawingService } from '../../../core/drawing/drawing.service';
       <canvas
         #canvas
         [class.can-draw]="canDraw()"
+        [class.no-cursor]="canDraw() && drawing.constraints().hideInk"
         [attr.aria-label]="canDraw() ? 'Drawing canvas — draw your word here' : 'Drawing canvas'"
         role="img"
         (pointerdown)="onDown($event)"
@@ -44,10 +45,11 @@ import { DrawingService } from '../../../core/drawing/drawing.service';
     }
     canvas { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; }
     canvas.can-draw { cursor: crosshair; }
+    canvas.no-cursor { cursor: none; }
   `,
 })
 export class CanvasBoard implements AfterViewInit, OnDestroy {
-  private readonly drawing = inject(DrawingService);
+  protected readonly drawing = inject(DrawingService);
   readonly canDraw = input(false);
 
   private readonly frame = viewChild.required<ElementRef<HTMLDivElement>>('frame');
@@ -83,6 +85,11 @@ export class CanvasBoard implements AfterViewInit, OnDestroy {
     if (!this.canDraw() || this.activePointer !== null) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.preventDefault();
+    if (this.drawing.tool() === 'fill') {
+      const [fx, fy] = this.normalise(event);
+      this.drawing.fillAt(fx, fy);
+      return;
+    }
     const canvas = this.canvas().nativeElement;
     canvas.setPointerCapture(event.pointerId);
     this.activePointer = event.pointerId;

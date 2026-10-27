@@ -12,13 +12,16 @@ Runs the shared, server and client suites. The server integration tests start a 
 
 | Check | Result |
 | --- | --- |
-| `npm test`: shared 11, server 60, client 9 tests | ✅ all passing |
+| `npm test`: shared 16, server 97, client 17 tests | ✅ all passing |
 | Server builds (`tsc`), client production build | ✅ |
 | Migrations + seed (450 words) on embedded Postgres | ✅ |
 | Headless Chrome, desktop + phone-sized (touch) context: create private room → join by invite link → start → word secrecy → live stroke sync → refresh mid-turn restores drawing → wrong + correct guess → scoring → next drawer | ✅ (dev server and production single-origin build) |
 | Quick Play in Tamil: two players matched, auto-start countdown, Tamil word guessed (typed in decomposed Unicode) | ✅ |
 | Service worker registration and web manifest in the production build | ✅ |
 | Room browser: Create Room dialog (public, random name, 16 players) → listed as "Waiting for players 1/16" → join by click; private named room → "View all private rooms" search + report → join by typing name; late join into "Playing round 1 of 3" | ✅ |
+| 7 game features in 3–4 real browsers: host rule editor and guest summary, Chaos palette for the drawer + banner for everyone, collaborative pen hand-off after 10 s with the canvas kept, floating reactions, end-of-round voting with thumbnails/self-vote lock/duplicate block, Team Battle with manual teams + team bonus + team results, mixed English/Tamil word choices, unlocking and selecting an avatar + title (locked avatar forced via the API → HTTP 400) | ✅ |
+| Migration 004 on an existing database with data (upgrade path) | ✅ |
+| Lobby practice canvas (local only, not shared, cleared at game start) and paint-bucket fill: fill inside an outline reaches the other player, outside stays white, undo removes it, reload replays it | ✅ |
 
 **Not yet verified:** real Android and iOS devices, physical stylus input, clients on different networks against a deployed server, the Cloudflare/Render/Supabase deployment itself, native Capacitor builds, and load (how many concurrent rooms a free instance can handle).
 

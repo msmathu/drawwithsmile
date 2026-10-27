@@ -1,23 +1,34 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import {
-  AVATAR_COUNT,
+  CHAOS_RULES,
+  CHAOS_RULE_IDS,
   LIMITS,
+  PALETTE,
+  REACTIONS,
   ROOM_REPORTS_TO_UNLIST,
+  TEAMS,
   TIMINGS,
+  VOTE_CATEGORIES,
   buildHint,
   cleanText,
   containsWord,
   hintCount,
   hintableIndexes,
   isCloseGuess,
+  isCorrectGuess,
   normalizeGuess,
   splitGraphemes,
+  validateSettings,
+  type ChaosRule,
+  type ChaosTurn,
   type ChatKind,
   type ChatMessage,
   type ClearOp,
   type DrawOp,
+  type FillOp,
   type GamePhase,
   type PlayerPublic,
+  type ReactionEmoji,
   type RoomSettings,
   type RoomState,
   type RoomVisibility,
@@ -26,13 +37,18 @@ import {
   type Standing,
   type StrokeChunk,
   type StrokeOp,
+  type TeamPublic,
   type TurnEndReason,
   type TurnSummary,
+  type VoteCandidate,
+  type VoteCategory,
+  type VoteWinner,
   type WordChoice,
 } from '@dws/shared';
-import type { GameSummary, ModerationActionType, TurnRecord, WordEntry } from './game-records.js';
+import type { GameSummary, ModerationActionType, PlayerGameStats, TurnRecord, WordEntry } from './game-records.js';
 import type { WordService } from '../services/word.service.js';
 import { drawerAllGuessedBonus, drawerPointsPerGuess, guesserPoints, rankByScore } from '../services/scoring.js';
+import { defaultAvatar } from '../utils/avatar.js';
 import { GameError } from '../utils/errors.js';
 import { shortId, shuffle } from '../utils/ids.js';
 import { censor } from '../utils/profanity.js';
@@ -66,35 +82,63 @@ export interface RoomDeps {
   hooks?: RoomHooks;
 }
 
+/** Cosmetics chosen by the player (validated by the ProfileService before reaching the room). */
+export interface PlayerLook {
+  avatar: number;
+  title: string | null;
+}
+
 interface ServerPlayer {
   id: string;
   nickname: string;
   avatar: number;
+  title: string | null;
   score: number;
   connected: boolean;
   removeTimer: NodeJS.Timeout | null;
   hasGuessed: boolean;
   muted: boolean;
-  correctGuesses: number;
-  drawings: number;
+  team: number | null;
   lastMessage: { text: string; at: number } | null;
+  stats: PlayerGameStats;
+  /** Hashed public IP (null on shared/private networks), used for room bans. */
+  ipKey: string | null;
 }
 
-type RemoveReason = 'left' | 'timeout' | 'kicked' | 'banned' | 'vote-kicked' | 'replaced';
+interface VotingState {
+  candidates: VoteCandidate[];
+  categories: VoteCategory[];
+  /** voter id -> category -> turn number */
+  votes: Map<string, Map<VoteCategory, number>>;
+  closed: boolean;
+  winners: VoteWinner[] | null;
+}
+
+type RemoveReason = 'left' | 'timeout' | 'kicked' | 'banned' | 'vote-kicked' | 'replaced' | 'auto-banned';
 
 const RECENT_WORDS_LIMIT = 150;
 const DUPLICATE_MESSAGE_WINDOW_MS = 4_000;
-const PLAYING_PHASES: readonly GamePhase[] = ['choosing', 'drawing', 'turnEnd'];
+const PLAYING_PHASES: readonly GamePhase[] = ['choosing', 'drawing', 'turnEnd', 'voting'];
+const LIMITED_PALETTE_SIZE = 4;
 
-function avatarFor(id: string): number {
-  let hash = 0;
-  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return hash % AVATAR_COUNT;
+function emptyStats(): PlayerGameStats {
+  return { correctGuesses: 0, drawings: 0, quickGuesses: 0, perfectDrawings: 0, collabDrawings: 0, chaosTurns: 0, votesReceived: 0 };
+}
+
+/**
+ * True when `text` mentions an answer. Short answers (≤ 3 letters, e.g. "tv") must
+ * appear as a whole word so ordinary messages aren't caught by accident.
+ */
+function mentionsAnswer(text: string, answer: string): boolean {
+  const a = normalizeGuess(answer);
+  if (splitGraphemes(a.replace(/ /g, '')).length <= 3) return normalizeGuess(text).split(' ').includes(a);
+  return containsWord(text, answer);
 }
 
 /**
  * One game room. Holds all short-lived game state in memory and enforces every
- * rule on the server: who may draw, what counts as a correct guess, scores, timers.
+ * rule on the server: who may draw, what counts as a correct guess, scores,
+ * timers, votes and teams.
  */
 export class Room {
   readonly createdAt = Date.now();
@@ -102,7 +146,10 @@ export class Room {
   hostId: string | null = null;
 
   private readonly players = new Map<string, ServerPlayer>();
-  private readonly banned = new Set<string>();
+  /** Banned player ids -> ban end time (Infinity = until the room closes). */
+  private readonly banned = new Map<string, number>();
+  /** Hashed IPs of banned players, so a new guest account on the same connection is refused too. */
+  private readonly bannedIpKeys = new Map<string, number>();
   private readonly voteKicks = new Map<string, Set<string>>();
   private readonly recentWords: string[] = [];
   private readonly chatLog: ChatMessage[] = [];
@@ -114,17 +161,33 @@ export class Room {
   private turnNumber = 0;
   private queue: string[] = [];
   private drawerId: string | null = null;
+  private artists: string[] = [];
+  private penIndex = 0;
+  private penEndsAt: number | null = null;
+  private penTimer: NodeJS.Timeout | null = null;
+  /** Strokes/fills started by the current pen holder (one-stroke challenge). */
+  private penStrokes = 0;
   private choices: WordEntry[] = [];
   private word: WordEntry | null = null;
-  private wordGraphemes: string[] = [];
   private readonly revealed = new Set<number>();
   private turnStartedAt = 0;
   private turnDurationMs = 0;
   private phaseEndsAt: number | null = null;
   private correctCount = 0;
   private readonly turnDeltas = new Map<string, number>();
+  private readonly reactionCounts = new Map<string, number>();
+  private chaos: ChaosTurn | null = null;
+  private readonly chaosCredited = new Set<string>();
   private lastTurn: TurnSummary | null = null;
   private turns: TurnRecord[] = [];
+
+  // Teams: bonus points earned by each team this game / this turn.
+  private readonly teamBonusPool = new Map<number, number>();
+  private readonly turnTeamBonuses = new Map<number, number>();
+
+  // Voting
+  private roundCandidates: VoteCandidate[] = [];
+  private voting: VotingState | null = null;
 
   // Drawing state for the current turn
   private ops: DrawOp[] = [];
@@ -178,19 +241,29 @@ export class Room {
 
   /**
    * Throws the reason a player could not join right now. Members may always rejoin.
-   * Games in progress accept new players: they guess straight away and draw from the next round.
+   * When late joining is allowed, newcomers guess straight away and draw from the next round.
    */
-  assertCanJoin(playerId: string): void {
+  assertCanJoin(playerId: string, ipKey: string | null = null): void {
     if (this.disposed) throw new GameError('not-found', 'This room has closed.');
     if (this.players.has(playerId)) return;
-    if (this.banned.has(playerId)) throw new GameError('banned', 'You cannot join this room.');
+    const until = Math.max(this.banned.get(playerId) ?? 0, ipKey !== null ? (this.bannedIpKeys.get(ipKey) ?? 0) : 0);
+    if (until > Date.now()) {
+      const minutes = Math.ceil((until - Date.now()) / 60_000);
+      throw new GameError(
+        'banned',
+        until === Infinity ? 'You cannot join this room.' : `You are banned from this room for ${minutes} more minute${minutes === 1 ? '' : 's'}.`,
+      );
+    }
+    if (!this.settings.lateJoin && PLAYING_PHASES.includes(this.phase)) {
+      throw new GameError('game-in-progress', 'This room does not allow joining a game in progress.');
+    }
     if (this.players.size >= this.settings.maxPlayers) throw new GameError('room-full', 'This room is full.');
   }
 
   /** Whether a player could join right now (used by matchmaking). */
-  canAccept(playerId: string): boolean {
+  canAccept(playerId: string, ipKey: string | null = null): boolean {
     try {
-      this.assertCanJoin(playerId);
+      this.assertCanJoin(playerId, ipKey);
       return true;
     } catch {
       return false;
@@ -198,9 +271,10 @@ export class Room {
   }
 
   /** Adds a player, or reconnects them if they are already a member. */
-  join(playerId: string, nickname: string): 'joined' | 'rejoined' {
-    this.assertCanJoin(playerId);
+  join(playerId: string, nickname: string, look?: PlayerLook, ipKey: string | null = null): 'joined' | 'rejoined' {
+    this.assertCanJoin(playerId, ipKey);
     if (this.players.has(playerId)) {
+      if (look) this.setLook(playerId, look);
       this.reconnect(playerId);
       return 'rejoined';
     }
@@ -208,22 +282,37 @@ export class Room {
     const player: ServerPlayer = {
       id: playerId,
       nickname: this.uniqueNickname(nickname),
-      avatar: avatarFor(playerId),
+      avatar: look?.avatar ?? defaultAvatar(playerId),
+      title: look?.title ?? null,
       score: 0,
       connected: true,
       removeTimer: null,
       hasGuessed: false,
       muted: false,
-      correctGuesses: 0,
-      drawings: 0,
+      team: null,
       lastMessage: null,
+      stats: emptyStats(),
+      ipKey,
     };
+    if (this.settings.teams) player.team = this.smallestTeam();
     this.players.set(playerId, player);
-    if (!this.hostId && this.visibility === 'private') this.hostId = playerId;
-    this.system(`${player.nickname} joined the room.`);
+    // Private rooms: first player is admin. Public rooms: only the player who created the room
+    // (Quick Play rooms have no admin and use vote-kick instead).
+    if (!this.hostId && (this.visibility === 'private' || playerId === this.creatorId)) this.hostId = playerId;
+    const teamNote = player.team !== null ? ` (${TEAMS[player.team]!.name})` : '';
+    this.system(`${player.nickname} joined the room${teamNote}.`);
     this.updateAutoStart();
     this.touch();
     return 'joined';
+  }
+
+  /** Updates a player's avatar/title (already validated by the ProfileService). */
+  setLook(playerId: string, look: PlayerLook): void {
+    const p = this.players.get(playerId);
+    if (!p || (p.avatar === look.avatar && p.title === look.title)) return;
+    p.avatar = look.avatar;
+    p.title = look.title;
+    this.touch();
   }
 
   reconnect(playerId: string): void {
@@ -245,12 +334,10 @@ export class Room {
     out.toPlayers([playerId], 'room:state', this.toState());
     out.toPlayers([playerId], 'chat:history', [...this.chatLog]);
     out.toPlayers([playerId], 'draw:history', this.drawHistory());
-    if (playerId === this.drawerId) {
-      if (this.phase === 'choosing') {
-        out.toPlayers([playerId], 'turn:choices', { choices: this.choices.map(toChoice), remainingMs: this.remainingMs() ?? 0 });
-      } else if (this.phase === 'drawing' && this.word) {
-        out.toPlayers([playerId], 'turn:word', { word: this.word.text });
-      }
+    if (this.phase === 'choosing' && playerId === this.drawerId) {
+      out.toPlayers([playerId], 'turn:choices', { choices: this.choices.map(toChoice), remainingMs: this.remainingMs() ?? 0 });
+    } else if (this.phase === 'drawing' && this.word && this.artists.includes(playerId)) {
+      out.toPlayers([playerId], 'turn:word', { word: this.word.text });
     }
   }
 
@@ -262,14 +349,21 @@ export class Room {
     p.removeTimer = setTimeout(() => this.removePlayer(playerId, 'timeout'), grace);
     if (this.phase !== 'lobby') this.system(`${p.nickname} lost connection…`);
     this.updateAutoStart();
-    if (this.phase === 'drawing') this.checkAllGuessed();
+    if (this.phase === 'drawing') {
+      // A collaborative drawing doesn't wait for a disconnected artist.
+      if (playerId === this.currentArtistId && this.artists.length > 1) this.passPen(null);
+      this.checkAllGuessed();
+    }
+    if (this.phase === 'voting') this.closeVotingIfComplete();
     this.touch();
   }
 
-  removePlayer(playerId: string, reason: RemoveReason): void {
+  removePlayer(playerId: string, reason: RemoveReason, message?: string): void {
     const p = this.players.get(playerId);
     if (!p) return;
     if (p.removeTimer) clearTimeout(p.removeTimer);
+    const wasCurrentArtist = playerId === this.currentArtistId;
+    const artistIndex = this.artists.indexOf(playerId);
     this.players.delete(playerId);
     this.voteKicks.delete(playerId);
     for (const votes of this.voteKicks.values()) votes.delete(playerId);
@@ -277,13 +371,15 @@ export class Room {
 
     const kickReason =
       reason === 'kicked'
-        ? 'You were removed from the room by the host.'
+        ? 'You were removed from the room by the room admin.'
         : reason === 'banned'
-          ? 'You were banned from this room by the host.'
+          ? 'You were banned from this room by the room admin.'
           : reason === 'vote-kicked'
             ? 'You were removed from the room by a player vote.'
-            : null;
-    this.deps.output.playerRemoved(playerId, kickReason);
+            : reason === 'auto-banned'
+              ? 'You have been banned from DrawWithSmile because many players reported you.'
+              : null;
+    this.deps.output.playerRemoved(playerId, message ?? kickReason);
 
     const verb = reason === 'left' || reason === 'timeout' || reason === 'replaced' ? 'left the room' : 'was removed';
     this.system(`${p.nickname} ${verb}.`);
@@ -300,14 +396,30 @@ export class Room {
       this.system(`${next.nickname} is now the host.`);
     }
 
+    if (this.phase === 'lobby' && this.settings.teams && this.settings.teamAssignment === 'auto') this.fixTeamBalance();
+
     if (PLAYING_PHASES.includes(this.phase)) {
       if (this.players.size < LIMITS.MIN_PLAYERS_TO_START) {
         this.system('Not enough players left — the game is over.');
         this.endGame();
-      } else if (this.drawerId === playerId && (this.phase === 'choosing' || this.phase === 'drawing')) {
+      } else if (this.phase === 'choosing' && this.drawerId === playerId) {
         this.endTurn('drawer-left');
+      } else if (this.phase === 'drawing' && artistIndex >= 0) {
+        this.artists.splice(artistIndex, 1);
+        if (this.artists.length === 0) {
+          this.endTurn('drawer-left');
+        } else if (wasCurrentArtist) {
+          // Hand the pen to whoever was next in line.
+          this.penIndex = (artistIndex - 1 + this.artists.length) % this.artists.length;
+          this.passPen(null);
+        } else if (artistIndex < this.penIndex) {
+          this.penIndex--;
+        }
+        if (this.phase === 'drawing') this.checkAllGuessed();
       } else if (this.phase === 'drawing') {
         this.checkAllGuessed();
+      } else if (this.phase === 'voting') {
+        this.closeVotingIfComplete();
       }
     }
     this.updateAutoStart();
@@ -316,13 +428,22 @@ export class Room {
 
   // ---------------------------------------------------------------- settings & lifecycle
 
+  /** Host-only, lobby-only. Ranges are validated by the socket schema; combinations here. */
   updateSettings(byId: string, patch: Partial<RoomSettings>): void {
     this.assertHost(byId);
-    if (this.phase !== 'lobby') throw new GameError('wrong-phase', 'Settings can only be changed in the lobby.');
-    if (patch.maxPlayers !== undefined && patch.maxPlayers < this.players.size) {
-      throw new GameError('bad-request', `There are already ${this.players.size} players in the room.`);
+    if (this.phase !== 'lobby') throw new GameError('wrong-phase', 'Room rules are locked while a game is running.');
+    const next: RoomSettings = { ...this.settings, ...patch };
+    const problem = validateSettings(next, this.players.size);
+    if (problem) throw new GameError('bad-request', problem);
+
+    const teamsChanged = next.teams !== this.settings.teams || next.teamCount !== this.settings.teamCount;
+    const switchedToAuto = next.teamAssignment === 'auto' && this.settings.teamAssignment !== 'auto';
+    this.settings = next;
+    if (!next.teams) {
+      for (const p of this.players.values()) p.team = null;
+    } else if (teamsChanged || switchedToAuto) {
+      this.rebalanceTeams();
     }
-    this.settings = { ...this.settings, ...patch };
     this.touch();
   }
 
@@ -333,6 +454,20 @@ export class Room {
     if (this.connectedCount < LIMITS.MIN_PLAYERS_TO_START) {
       throw new GameError('not-enough-players', `At least ${LIMITS.MIN_PLAYERS_TO_START} players are needed to start.`);
     }
+    const problem = validateSettings(this.settings, this.players.size);
+    if (problem) throw new GameError('bad-request', problem);
+    if (this.settings.teams) {
+      if (this.connectedCount < this.settings.teamCount) {
+        throw new GameError('not-enough-players', `Team Battle with ${this.settings.teamCount} teams needs at least ${this.settings.teamCount} players.`);
+      }
+      if (this.settings.teamAssignment === 'auto') this.rebalanceTeams();
+      for (const p of this.players.values()) if (p.team === null) p.team = this.smallestTeam();
+      for (let t = 0; t < this.settings.teamCount; t++) {
+        if (![...this.players.values()].some((p) => p.team === t && p.connected)) {
+          throw new GameError('bad-request', `${TEAMS[t]!.name} has no players. Balance the teams before starting.`);
+        }
+      }
+    }
     this.cancelAutoStart();
     this.sessionId = randomUUID();
     this.gameStartedAt = new Date();
@@ -341,12 +476,15 @@ export class Room {
     this.turnNumber = 0;
     this.queue = [];
     this.lastTurn = null;
+    this.roundCandidates = [];
+    this.voting = null;
+    this.teamBonusPool.clear();
     this.voteKicks.clear();
     for (const p of this.players.values()) {
       p.score = 0;
-      p.correctGuesses = 0;
-      p.drawings = 0;
+      p.stats = emptyStats();
     }
+    this.system(this.rulesSummary());
     this.system('The game has started. Good luck! 😊');
     this.nextTurn();
   }
@@ -368,6 +506,9 @@ export class Room {
     this.phaseEndsAt = null;
     this.lastTurn = null;
     this.round = 0;
+    this.voting = null;
+    this.roundCandidates = [];
+    this.teamBonusPool.clear();
     this.resetTurn();
     for (const p of this.players.values()) p.score = 0;
     this.system('Back in the lobby.');
@@ -381,6 +522,80 @@ export class Room {
     this.clearPhaseTimers();
     this.cancelAutoStart();
     for (const p of this.players.values()) if (p.removeTimer) clearTimeout(p.removeTimer);
+  }
+
+  // ---------------------------------------------------------------- teams
+
+  /** Manual team selection in the lobby. */
+  joinTeam(playerId: string, team: number): void {
+    const p = this.requirePlayer(playerId);
+    if (!this.settings.teams) throw new GameError('bad-request', 'Team Battle is not turned on in this room.');
+    if (this.phase !== 'lobby') throw new GameError('wrong-phase', 'Teams can only be changed in the lobby.');
+    if (this.settings.teamAssignment !== 'manual') {
+      throw new GameError('bad-request', 'Teams are assigned automatically in this room.');
+    }
+    if (!Number.isInteger(team) || team < 0 || team >= this.settings.teamCount) throw new GameError('bad-request', 'That team does not exist.');
+    if (p.team === team) return;
+    if (this.teamMembers(team).length >= this.teamCapacity()) throw new GameError('bad-request', 'That team is full.');
+    p.team = team;
+    this.system(`${p.nickname} joined ${TEAMS[team]!.name}.`);
+    this.touch();
+  }
+
+  /** Host: spread players evenly across teams. */
+  balanceTeams(byId: string): void {
+    this.assertHost(byId);
+    if (!this.settings.teams) throw new GameError('bad-request', 'Team Battle is not turned on in this room.');
+    if (this.phase !== 'lobby') throw new GameError('wrong-phase', 'Teams can only be changed in the lobby.');
+    this.rebalanceTeams();
+    this.system('The host balanced the teams.');
+    this.touch();
+  }
+
+  private teamCapacity(): number {
+    return Math.ceil(this.settings.maxPlayers / this.settings.teamCount);
+  }
+
+  private teamMembers(team: number): ServerPlayer[] {
+    return [...this.players.values()].filter((p) => p.team === team);
+  }
+
+  private smallestTeam(): number {
+    let best = 0;
+    for (let t = 1; t < this.settings.teamCount; t++) {
+      if (this.teamMembers(t).length < this.teamMembers(best).length) best = t;
+    }
+    return best;
+  }
+
+  /** Round-robin by join order, connected players first so every team gets active members. */
+  private rebalanceTeams(): void {
+    const ordered = [...this.players.values()].sort((a, b) => Number(b.connected) - Number(a.connected));
+    ordered.forEach((p, i) => (p.team = i % this.settings.teamCount));
+  }
+
+  /** After someone leaves the lobby, move one player if teams differ by more than one. */
+  private fixTeamBalance(): void {
+    for (let guard = 0; guard < LIMITS.MAX_PLAYERS; guard++) {
+      const sizes = Array.from({ length: this.settings.teamCount }, (_, t) => this.teamMembers(t).length);
+      const max = Math.max(...sizes);
+      const min = Math.min(...sizes);
+      if (max - min <= 1) return;
+      const mover = this.teamMembers(sizes.indexOf(max)).at(-1)!;
+      mover.team = sizes.indexOf(min);
+      this.system(`${mover.nickname} moved to ${TEAMS[mover.team]!.name} to keep teams even.`);
+    }
+  }
+
+  private teamsPublic(): TeamPublic[] | null {
+    if (!this.settings.teams) return null;
+    return Array.from({ length: this.settings.teamCount }, (_, index) => {
+      const members = this.teamMembers(index);
+      const sum = members.reduce((total, p) => total + p.score, 0);
+      const base = this.settings.teamScoring === 'average' ? Math.round(sum / Math.max(1, members.length)) : sum;
+      const bonus = this.teamBonusPool.get(index) ?? 0;
+      return { index, name: TEAMS[index]!.name, color: TEAMS[index]!.color, memberIds: members.map((p) => p.id), score: base + bonus, bonus };
+    });
   }
 
   // ---------------------------------------------------------------- chat & guessing
@@ -399,27 +614,27 @@ export class Room {
     p.lastMessage = { text: normalized, at: now };
 
     if (this.phase === 'drawing' && this.word) {
-      const word = this.word.text;
-      if (playerId === this.drawerId || p.hasGuessed) {
-        if (containsWord(text, word)) {
+      const answers = this.answers();
+      if (this.artists.includes(playerId) || p.hasGuessed) {
+        if (answers.some((a) => mentionsAnswer(text, a))) {
           this.privateMessage(playerId, 'warning', 'Your message was hidden because it contains the word.');
           return;
         }
-        const audience = [...this.players.values()].filter((x) => x.id === this.drawerId || x.hasGuessed).map((x) => x.id);
+        const audience = [...this.players.values()].filter((x) => this.artists.includes(x.id) || x.hasGuessed).map((x) => x.id);
         this.deps.output.toPlayers(audience, 'chat:message', this.message('guessed-chat', censor(text), p));
         return;
       }
-      if (normalized === normalizeGuess(word)) {
+      if (isCorrectGuess(text, answers)) {
         this.correctGuess(p);
         return;
       }
-      if (containsWord(text, word)) {
+      if (answers.some((a) => mentionsAnswer(text, a))) {
         // Shown only to the sender so the answer never leaks to other guessers.
         this.deps.output.toPlayers([playerId], 'chat:message', this.message('chat', text, p));
         return;
       }
       this.broadcast(this.message('chat', censor(text), p));
-      if (isCloseGuess(text, word)) this.privateMessage(playerId, 'close', `"${text}" is very close!`);
+      if (answers.some((a) => isCloseGuess(text, a))) this.privateMessage(playerId, 'close', `"${text}" is very close!`);
       return;
     }
     if (this.phase === 'choosing' && playerId === this.drawerId && this.choices.some((w) => containsWord(text, w.text))) {
@@ -427,6 +642,10 @@ export class Room {
       return;
     }
     this.broadcast(this.message('chat', censor(text), p));
+  }
+
+  private answers(): string[] {
+    return this.word ? [this.word.text, ...this.word.accepted] : [];
   }
 
   private correctGuess(p: ServerPlayer): void {
@@ -438,28 +657,167 @@ export class Room {
       difficulty: word.difficulty,
     });
     p.hasGuessed = true;
-    p.correctGuesses++;
+    p.stats.correctGuesses++;
+    if (Date.now() - this.turnStartedAt <= TIMINGS.QUICK_GUESS_MS) p.stats.quickGuesses++;
     this.award(p, points);
-    const drawer = this.drawerId ? this.players.get(this.drawerId) : undefined;
-    if (drawer) this.award(drawer, drawerPointsPerGuess(word.difficulty));
+    for (const id of this.artists) {
+      const artist = this.players.get(id);
+      if (artist) this.award(artist, drawerPointsPerGuess(word.difficulty));
+    }
+    if (this.chaos) {
+      // Surviving chaos: guessing it, or drawing something that got guessed.
+      for (const id of [p.id, ...this.artists]) {
+        if (this.chaosCredited.has(id)) continue;
+        const player = this.players.get(id);
+        if (player) player.stats.chaosTurns++;
+        this.chaosCredited.add(id);
+      }
+    }
     this.correctCount++;
 
     this.broadcast(this.message('correct', `${p.nickname} guessed the word!`));
     this.privateMessage(p.id, 'system', `You guessed it: "${word.text}" (+${points})`);
+    this.checkTeamBonus(p.team);
     this.touch();
     this.checkAllGuessed();
   }
 
+  /** Team bonus: every connected guesser of a team got the word this turn. */
+  private checkTeamBonus(team: number | null): void {
+    if (!this.settings.teams || team === null || this.settings.teamBonus <= 0 || this.turnTeamBonuses.has(team)) return;
+    const guessers = this.teamMembers(team).filter((m) => m.connected && !this.artists.includes(m.id));
+    if (guessers.length === 0 || !guessers.every((m) => m.hasGuessed)) return;
+    const bonus = this.settings.teamBonus;
+    this.turnTeamBonuses.set(team, bonus);
+    this.teamBonusPool.set(team, (this.teamBonusPool.get(team) ?? 0) + bonus);
+    this.system(`🎉 Everyone in ${TEAMS[team]!.name} got it! +${bonus} team bonus.`);
+  }
+
   private checkAllGuessed(): void {
     if (this.phase !== 'drawing' || !this.word) return;
-    const guessers = [...this.players.values()].filter((p) => p.connected && p.id !== this.drawerId);
+    const guessers = [...this.players.values()].filter((p) => p.connected && !this.artists.includes(p.id));
     if (guessers.length === 0 || !guessers.every((p) => p.hasGuessed)) return;
-    const drawer = this.drawerId ? this.players.get(this.drawerId) : undefined;
-    if (drawer && this.correctCount > 0) this.award(drawer, drawerAllGuessedBonus(this.word.difficulty));
+    if (this.correctCount > 0) {
+      for (const id of this.artists) {
+        const artist = this.players.get(id);
+        if (!artist) continue;
+        this.award(artist, drawerAllGuessedBonus(this.word.difficulty));
+        artist.stats.perfectDrawings++;
+      }
+    }
     this.endTurn('all-guessed');
   }
 
+  // ---------------------------------------------------------------- reactions & voting
+
+  react(playerId: string, emoji: ReactionEmoji): void {
+    this.requirePlayer(playerId);
+    if (!this.settings.reactions) throw new GameError('bad-request', 'Reactions are turned off in this room.');
+    if (this.phase !== 'drawing' && this.phase !== 'turnEnd') throw new GameError('wrong-phase', 'Reactions work while someone is drawing.');
+    if (!(REACTIONS as readonly string[]).includes(emoji)) throw new GameError('bad-request', 'Unknown reaction.');
+    this.reactionCounts.set(emoji, (this.reactionCounts.get(emoji) ?? 0) + 1);
+    this.deps.output.toAll('reaction', { playerId, emoji });
+  }
+
+  castVote(voterId: string, category: VoteCategory, turnNumber: number): void {
+    this.requirePlayer(voterId);
+    const voting = this.voting;
+    if (this.phase !== 'voting' || !voting || voting.closed) throw new GameError('wrong-phase', 'Voting has closed.');
+    if (!voting.categories.includes(category)) throw new GameError('bad-request', 'That vote category is not used in this room.');
+    const candidate = voting.candidates.find((c) => c.turnNumber === turnNumber);
+    if (!candidate) throw new GameError('bad-request', 'That drawing is not part of this vote.');
+    if (candidate.artistIds.includes(voterId)) throw new GameError('bad-request', "You can't vote for your own drawing.");
+    const mine = voting.votes.get(voterId) ?? new Map<VoteCategory, number>();
+    if (mine.has(category)) throw new GameError('bad-request', 'You already voted in this category.');
+    mine.set(category, turnNumber);
+    voting.votes.set(voterId, mine);
+    this.closeVotingIfComplete();
+    this.touch();
+  }
+
+  private shouldVote(): boolean {
+    return this.settings.voting && this.roundCandidates.length > 0 && this.connectedCount >= LIMITS.MIN_PLAYERS_TO_START;
+  }
+
+  private startVoting(): void {
+    const categories: VoteCategory[] = ['funniest', 'creative'];
+    if (this.settings.collaborative || this.settings.teams) categories.push('teamwork');
+    this.voting = { candidates: [...this.roundCandidates], categories, votes: new Map(), closed: false, winners: null };
+    this.phase = 'voting';
+    const ms = this.settings.votingSeconds * 1000;
+    this.phaseEndsAt = Date.now() + ms;
+    this.schedule(ms, () => this.closeVoting());
+    this.system('🗳️ Vote for the best drawings of this round!');
+    this.touch();
+  }
+
+  /** Closes early once every connected player has voted everywhere they are allowed to. */
+  private closeVotingIfComplete(): void {
+    const voting = this.voting;
+    if (this.phase !== 'voting' || !voting || voting.closed) return;
+    const done = [...this.players.values()]
+      .filter((p) => p.connected)
+      .every((p) => {
+        const eligible = voting.candidates.some((c) => !c.artistIds.includes(p.id));
+        return !eligible || voting.categories.every((cat) => voting.votes.get(p.id)?.has(cat));
+      });
+    if (done) this.closeVoting();
+  }
+
+  private closeVoting(): void {
+    const voting = this.voting;
+    if (!voting || voting.closed) return;
+    this.clearPhaseTimers();
+    voting.closed = true;
+    voting.winners = [];
+
+    // Every vote counts towards the artists' "votes received" statistic.
+    for (const ballot of voting.votes.values()) {
+      for (const turnNumber of ballot.values()) {
+        const candidate = voting.candidates.find((c) => c.turnNumber === turnNumber);
+        for (const id of candidate?.artistIds ?? []) {
+          const artist = this.players.get(id);
+          if (artist) artist.stats.votesReceived++;
+        }
+      }
+    }
+
+    for (const category of voting.categories) {
+      const tally = new Map<number, number>();
+      for (const ballot of voting.votes.values()) {
+        const turn = ballot.get(category);
+        if (turn !== undefined) tally.set(turn, (tally.get(turn) ?? 0) + 1);
+      }
+      const max = Math.max(0, ...tally.values());
+      const info = VOTE_CATEGORIES.find((c) => c.id === category)!;
+      if (max === 0) {
+        this.system(`${info.icon} ${info.name}: no votes.`);
+        continue;
+      }
+      for (const candidate of voting.candidates.filter((c) => tally.get(c.turnNumber) === max)) {
+        voting.winners.push({ category, turnNumber: candidate.turnNumber, artistIds: candidate.artistIds, votes: max });
+        if (this.settings.voteBonus > 0) {
+          for (const id of candidate.artistIds) {
+            const artist = this.players.get(id);
+            if (artist) this.award(artist, this.settings.voteBonus);
+          }
+        }
+        const names = candidate.artistIds.map((id) => this.players.get(id)?.nickname ?? 'someone').join(' & ');
+        const bonus = this.settings.voteBonus > 0 ? ` +${this.settings.voteBonus}` : '';
+        this.system(`${info.icon} ${info.name}: "${candidate.word}" by ${names} (${max} vote${max === 1 ? '' : 's'})${bonus}`);
+      }
+    }
+
+    this.phaseEndsAt = Date.now() + TIMINGS.VOTE_REVEAL_MS;
+    this.schedule(TIMINGS.VOTE_REVEAL_MS, () => this.nextTurn(true));
+    this.touch();
+  }
+
   // ---------------------------------------------------------------- drawing
+
+  get currentArtistId(): string | null {
+    return this.phase === 'drawing' ? (this.artists[this.penIndex] ?? null) : null;
+  }
 
   drawChunk(playerId: string, chunk: StrokeChunk): void {
     this.assertDrawing(playerId);
@@ -474,11 +832,14 @@ export class Room {
       if (this.ops.length >= LIMITS.MAX_OPS_PER_TURN) {
         throw new GameError('bad-request', 'The canvas is full. Clear it or undo to keep drawing.');
       }
+      this.assertChaosColour(chunk.tool === 'pen' ? chunk.color : null);
+      if (this.hasChaos('one-stroke') && this.penStrokes >= 1) throw new GameError('bad-request', 'One stroke only! Your line is finished.');
       stroke = { kind: 'stroke', id: chunk.id, tool: chunk.tool, color: chunk.color, size: chunk.size, points: [] };
       this.ops.push(stroke);
       this.usedOpIds.add(chunk.id);
       this.redoStack = [];
       this.openStroke = stroke;
+      this.penStrokes++;
     } else if (stroke.points.length / 2 + pairs > LIMITS.STROKE_MAX_POINTS) {
       throw new GameError('bad-request', 'Stroke is too long.');
     }
@@ -496,6 +857,7 @@ export class Room {
 
   undo(playerId: string): void {
     this.assertDrawing(playerId);
+    this.assertEditable();
     this.openStroke = null;
     const op = this.ops.pop();
     if (!op) return;
@@ -505,6 +867,7 @@ export class Room {
 
   redo(playerId: string): void {
     this.assertDrawing(playerId);
+    this.assertEditable();
     this.openStroke = null;
     const op = this.redoStack.pop();
     if (!op) return;
@@ -514,6 +877,7 @@ export class Room {
 
   clear(playerId: string): void {
     this.assertDrawing(playerId);
+    this.assertEditable();
     this.openStroke = null;
     if (this.ops.length === 0 || this.ops[this.ops.length - 1]!.kind === 'clear') return;
     if (this.ops.length >= LIMITS.MAX_OPS_PER_TURN) this.ops = [];
@@ -524,24 +888,138 @@ export class Room {
     this.deps.output.toAll('draw:clear', op);
   }
 
-  drawHistory(): DrawOp[] {
-    return this.ops.map((op) => (op.kind === 'stroke' ? { ...op, points: [...op.points] } : { ...op }));
+  /** Paint-bucket fill. Only the point and colour travel; every client fills locally. */
+  fill(playerId: string, fill: Omit<FillOp, 'kind'>): void {
+    this.assertDrawing(playerId);
+    if (this.hasChaos('one-stroke')) throw new GameError('bad-request', 'Fill is not allowed in the one-stroke challenge.');
+    this.assertChaosColour(fill.color);
+    this.openStroke = null;
+    if (this.usedOpIds.has(fill.id)) throw new GameError('bad-request', 'Duplicate fill.');
+    if (this.ops.length >= LIMITS.MAX_OPS_PER_TURN) {
+      throw new GameError('bad-request', 'The canvas is full. Clear it or undo to keep drawing.');
+    }
+    if (this.ops.filter((op) => op.kind === 'fill').length >= LIMITS.MAX_FILLS_PER_TURN) {
+      throw new GameError('bad-request', 'You have used a lot of fills this turn. Undo or clear to fill again.');
+    }
+    const op: FillOp = { kind: 'fill', id: fill.id, color: fill.color, x: fill.x, y: fill.y };
+    this.ops.push(op);
+    this.usedOpIds.add(op.id);
+    this.redoStack = [];
+    this.deps.output.toAll('draw:fill', op, playerId);
   }
 
+  /** Collaborative mode: pass the pen early (or automatically when `byId` is null). */
+  passPen(byId: string | null): void {
+    if (this.phase !== 'drawing') {
+      if (byId !== null) throw new GameError('wrong-phase', 'Nobody is drawing right now.');
+      return;
+    }
+    if (byId !== null) {
+      this.assertDrawing(byId);
+      if (this.artists.length < 2) throw new GameError('bad-request', 'There is nobody to pass the pen to.');
+    }
+    const count = this.artists.length;
+    let nextIndex = -1;
+    for (let step = 1; step <= count; step++) {
+      // step === count wraps back to the current artist (kept if nobody else is connected).
+      const candidate = (this.penIndex + step) % count;
+      if (this.players.get(this.artists[candidate]!)?.connected) {
+        nextIndex = candidate;
+        break;
+      }
+    }
+    if (nextIndex < 0) {
+      // No connected artist left: the drawing can't continue.
+      this.endTurn('drawer-left');
+      return;
+    }
+    const changed = nextIndex !== this.penIndex;
+    this.penIndex = nextIndex;
+    this.startPen();
+    if (changed) this.system(`✏️ ${this.players.get(this.artists[nextIndex]!)!.nickname} has the pen.`);
+    this.touch();
+  }
+
+  private startPen(): void {
+    this.penStrokes = 0;
+    this.openStroke = null;
+    if (this.penTimer) clearTimeout(this.penTimer);
+    this.penTimer = null;
+    this.penEndsAt = null;
+    if (this.artists.length < 2 || this.phaseEndsAt === null) return;
+    const ms = Math.min(this.settings.artistSeconds * 1000, Math.max(0, this.phaseEndsAt - Date.now()));
+    this.penEndsAt = Date.now() + ms;
+    this.penTimer = setTimeout(() => {
+      this.penTimer = null;
+      if (!this.disposed) this.passPen(null);
+    }, ms);
+  }
+
+  private stopPen(): void {
+    if (this.penTimer) clearTimeout(this.penTimer);
+    this.penTimer = null;
+    this.penEndsAt = null;
+  }
+
+  drawHistory(): DrawOp[] {
+    return this.ops.map((op): DrawOp => (op.kind === 'stroke' ? { ...op, points: [...op.points] } : { ...op }));
+  }
+
+  /** True for the player currently allowed to draw. */
   isDrawer(playerId: string): boolean {
-    return this.drawerId === playerId;
+    return this.currentArtistId === playerId;
+  }
+
+  private hasChaos(rule: ChaosRule): boolean {
+    return this.chaos?.rules.includes(rule) ?? false;
+  }
+
+  private assertChaosColour(color: string | null): void {
+    if (color !== null && this.chaos?.palette && !this.chaos.palette.includes(color)) {
+      throw new GameError('bad-request', "That colour isn't in this turn's palette.");
+    }
+  }
+
+  private assertEditable(): void {
+    if (this.hasChaos('one-stroke')) throw new GameError('bad-request', 'No undo, redo or clear in the one-stroke challenge.');
+  }
+
+  private rollChaos(): ChaosTurn {
+    const enabled = CHAOS_RULE_IDS.filter((r) => this.settings.chaosRules.includes(r));
+    const picked = this.settings.chaosRandom ? shuffle([...enabled]).slice(0, 1 + randomInt(Math.min(3, enabled.length))) : enabled;
+    const rules = CHAOS_RULE_IDS.filter((r) => picked.includes(r));
+    return {
+      rules,
+      palette: rules.includes('limited-palette')
+        ? shuffle(PALETTE.filter((c) => c !== '#ffffff')).slice(0, LIMITED_PALETTE_SIZE)
+        : null,
+      flip: rules.includes('flipped-canvas') ? (randomInt(2) === 0 ? 'horizontal' : 'vertical') : null,
+      brushSeed: rules.includes('shifting-brush') ? randomInt(1_000_000) : null,
+    };
   }
 
   // ---------------------------------------------------------------- moderation
 
-  kick(byId: string, targetId: string, ban: boolean): void {
-    if (this.visibility !== 'private') throw new GameError('bad-request', 'Use vote-kick in public rooms.');
+  /**
+   * Room admin removes anyone, at any time. `banMinutes`: false = kick (may rejoin straight away),
+   * a number = temporary ban from THIS room only (other rooms are unaffected). The ban also
+   * blocks a new guest account from the same connection until it ends.
+   */
+  kick(byId: string, targetId: string, banMinutes: false | number): void {
     this.assertHost(byId);
     if (byId === targetId) throw new GameError('bad-request', 'You cannot remove yourself.');
-    this.requirePlayer(targetId);
-    if (ban) this.banned.add(targetId);
-    this.deps.hooks?.onModeration?.({ roomCode: this.code, actorId: byId, targetId, action: ban ? 'ban' : 'kick' });
-    this.removePlayer(targetId, ban ? 'banned' : 'kicked');
+    const target = this.requirePlayer(targetId);
+    let message: string | undefined;
+    if (banMinutes !== false) {
+      if (!Number.isFinite(banMinutes) || banMinutes <= 0) throw new GameError('bad-request', 'Bans must have a time limit.');
+      const until = Date.now() + banMinutes * 60_000;
+      this.banned.set(targetId, until);
+      if (target.ipKey) this.bannedIpKeys.set(target.ipKey, until);
+      message = `The room admin banned you from this room for ${banMinutes} minutes. You can still play in other rooms.`;
+    }
+    this.deps.hooks?.onModeration?.({ roomCode: this.code, actorId: byId, targetId, action: banMinutes === false ? 'kick' : 'ban' });
+    this.removePlayer(targetId, banMinutes === false ? 'kicked' : 'banned', message);
+    if (banMinutes !== false && !this.disposed) this.system(`${target.nickname} was banned from this room for ${banMinutes} minutes.`);
   }
 
   setMuted(byId: string, targetId: string, muted: boolean): void {
@@ -567,7 +1045,8 @@ export class Room {
     const needed = this.votesNeeded();
     this.system(`${voter.nickname} voted to kick ${target.nickname} (${votes.size}/${needed}).`);
     if (votes.size >= needed) {
-      this.banned.add(targetId);
+      this.banned.set(targetId, Infinity);
+      if (target.ipKey) this.bannedIpKeys.set(target.ipKey, Infinity);
       this.deps.hooks?.onModeration?.({ roomCode: this.code, actorId: null, targetId, action: 'vote-kick' });
       this.removePlayer(targetId, 'vote-kicked');
     }
@@ -597,7 +1076,7 @@ export class Room {
 
   // ---------------------------------------------------------------- turn flow
 
-  private nextTurn(): void {
+  private nextTurn(afterVote = false): void {
     if (this.disposed) return;
     this.clearPhaseTimers();
     this.resetTurn();
@@ -610,12 +1089,19 @@ export class Room {
 
     let next = this.takeNextDrawer();
     if (!next) {
+      // A round just finished: vote on its drawings first (if enabled).
+      if (!afterVote && this.round > 0 && this.shouldVote()) {
+        this.startVoting();
+        return;
+      }
+      this.voting = null;
+      this.roundCandidates = [];
       this.round++;
       if (this.round > this.settings.rounds) {
         this.endGame();
         return;
       }
-      this.queue = [...this.players.values()].filter((p) => p.connected).map((p) => p.id);
+      this.queue = this.buildQueue();
       next = this.takeNextDrawer();
       if (!next) {
         this.endGame();
@@ -623,8 +1109,32 @@ export class Room {
       }
       this.system(`Round ${this.round} of ${this.settings.rounds}`);
     }
+    this.beginChoosing(next);
+  }
 
+  /** Join order; in Team Battle the teams take turns (A, B, A, B…). */
+  private buildQueue(): string[] {
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    if (!this.settings.teams) return connected.map((p) => p.id);
+    const byTeam = Array.from({ length: this.settings.teamCount }, (_, t) => connected.filter((p) => p.team === t));
+    const queue: string[] = [];
+    for (let i = 0; byTeam.some((members) => i < members.length); i++) {
+      for (const members of byTeam) if (members[i]) queue.push(members[i]!.id);
+    }
+    return queue;
+  }
+
+  private takeNextDrawer(): ServerPlayer | undefined {
+    while (this.queue.length > 0) {
+      const p = this.players.get(this.queue.shift()!);
+      if (p?.connected) return p;
+    }
+    return undefined;
+  }
+
+  private beginChoosing(next: ServerPlayer): void {
     this.drawerId = next.id;
+    this.artists = [next.id, ...this.coArtists(next.id)];
     this.turnNumber++;
     this.choices = this.deps.words.pickChoices({
       language: this.settings.language,
@@ -644,16 +1154,18 @@ export class Room {
       remainingMs: TIMINGS.CHOOSE_WORD_MS,
     });
     this.system(`${next.nickname} is choosing a word…`);
-    this.schedule(TIMINGS.CHOOSE_WORD_MS, () => this.beginDrawing(Math.floor(Math.random() * this.choices.length)));
+    this.schedule(TIMINGS.CHOOSE_WORD_MS, () => this.beginDrawing(randomInt(this.choices.length)));
     this.touch();
   }
 
-  private takeNextDrawer(): ServerPlayer | undefined {
-    while (this.queue.length > 0) {
-      const p = this.players.get(this.queue.shift()!);
-      if (p?.connected) return p;
-    }
-    return undefined;
+  /** Collaborative mode: the next players in join order share the pen (at least one guesser always remains). */
+  private coArtists(drawerId: string): string[] {
+    if (!this.settings.collaborative) return [];
+    const connected = [...this.players.values()].filter((p) => p.connected).map((p) => p.id);
+    const start = connected.indexOf(drawerId);
+    const rotated = [...connected.slice(start + 1), ...connected.slice(0, Math.max(0, start))];
+    const room = Math.max(0, connected.length - 2);
+    return rotated.slice(0, Math.min(this.settings.artistCount - 1, room));
   }
 
   private beginDrawing(index: number): void {
@@ -661,44 +1173,59 @@ export class Room {
     if (this.phase !== 'choosing' || !word) return;
     this.clearPhaseTimers();
     this.word = word;
-    this.wordGraphemes = splitGraphemes(word.text);
     this.choices = [];
     this.recentWords.push(normalizeGuess(word.text));
     if (this.recentWords.length > RECENT_WORDS_LIMIT) this.recentWords.shift();
 
-    const drawer = this.players.get(this.drawerId!);
-    if (drawer) drawer.drawings++;
+    for (const id of this.artists) {
+      const artist = this.players.get(id);
+      if (!artist) continue;
+      artist.stats.drawings++;
+      if (this.artists.length > 1) artist.stats.collabDrawings++;
+    }
     this.phase = 'drawing';
     this.turnStartedAt = Date.now();
     this.turnDurationMs = this.settings.drawTime * 1000;
     this.phaseEndsAt = this.turnStartedAt + this.turnDurationMs;
+    this.chaos = this.settings.mode === 'chaos' ? this.rollChaos() : null;
 
-    const hints = hintCount(word.text);
+    const hints = this.settings.hints ? hintCount(word.text) : 0;
     const order = shuffle(hintableIndexes(word.text));
     for (let k = 1; k <= hints; k++) {
-      const index = order[k - 1];
-      if (index === undefined) break;
+      const letter = order[k - 1];
+      if (letter === undefined) break;
       this.schedule(this.turnDurationMs * (0.4 + (0.45 * k) / (hints + 1)), () => {
-        this.revealed.add(index);
+        this.revealed.add(letter);
         this.touch();
       });
     }
     this.schedule(this.turnDurationMs, () => this.endTurn('time-up'));
 
-    this.deps.output.toPlayers([this.drawerId!], 'turn:word', { word: word.text });
-    this.system(`${drawer?.nickname ?? 'The drawer'} is drawing now!`);
+    this.penIndex = 0;
+    this.startPen();
+    this.deps.output.toPlayers(this.artists, 'turn:word', { word: word.text });
+    const names = this.artists.map((id) => this.players.get(id)?.nickname ?? 'someone');
+    this.system(
+      names.length > 1 ? `${names.join(' & ')} are drawing together! ${names[0]} has the pen first.` : `${names[0]} is drawing now!`,
+    );
+    if (this.chaos) {
+      const labels = this.chaos.rules.map((r) => CHAOS_RULES.find((c) => c.id === r)!).map((c) => `${c.icon} ${c.name}`);
+      this.system(`🌪️ Chaos challenges: ${labels.join(', ')}`);
+    }
     this.touch();
   }
 
   private endTurn(reason: TurnEndReason): void {
     if (this.phase !== 'choosing' && this.phase !== 'drawing') return;
     this.clearPhaseTimers();
+    this.stopPen();
     const word = this.word;
     if (word && this.drawerId) {
       this.turns.push({
         round: this.round,
         turnNumber: this.turnNumber,
         drawerId: this.drawerId,
+        artistIds: [...this.artists],
         wordId: word.id,
         wordText: word.text,
         correctGuesses: this.correctCount,
@@ -706,14 +1233,21 @@ export class Room {
         startedAt: new Date(this.turnStartedAt),
         endedAt: new Date(),
       });
+      if (this.artists.length > 0) {
+        this.roundCandidates.push({ turnNumber: this.turnNumber, artistIds: [...this.artists], word: word.text });
+      }
       this.system(`The word was "${word.text}".`);
     } else {
       this.system('The drawer left, so this turn was skipped.');
     }
     this.lastTurn = {
+      turnNumber: this.turnNumber,
       word: word?.text ?? '',
       drawerId: this.drawerId ?? '',
+      artistIds: [...this.artists],
       deltas: Object.fromEntries(this.turnDeltas),
+      teamBonuses: Object.fromEntries(this.turnTeamBonuses),
+      reactions: Object.fromEntries(this.reactionCounts),
       reason,
     };
     this.phase = 'turnEnd';
@@ -726,12 +1260,20 @@ export class Room {
     this.clearPhaseTimers();
     const completed = this.round > this.settings.rounds;
     this.resetTurn();
+    this.voting = null;
     this.phase = 'gameEnd';
     this.phaseEndsAt = Date.now() + TIMINGS.GAME_END_RETURN_MS;
 
     const standings = this.standings();
+    const teams = this.teamsPublic();
+    const bestTeamScore = teams ? Math.max(...teams.map((t) => t.score)) : 0;
+    const winningTeams = new Set(teams?.filter((t) => t.score === bestTeamScore && t.score > 0).map((t) => t.index) ?? []);
+    if (teams && winningTeams.size > 0) {
+      const names = [...winningTeams].map((i) => TEAMS[i]!.name).join(' & ');
+      this.system(`🏆 ${names} ${winningTeams.size > 1 ? 'tie' : 'wins'} the Team Battle with ${bestTeamScore} points!`);
+    }
     const winner = standings[0];
-    if (winner && winner.score > 0) this.system(`🏆 ${winner.nickname} wins with ${winner.score} points!`);
+    if (winner && winner.score > 0) this.system(`🏆 ${winner.nickname} has the top score: ${winner.score} points!`);
 
     if (this.turns.length > 0 && this.sessionId && this.gameStartedAt) {
       this.deps.hooks?.onGameEnd?.({
@@ -744,6 +1286,7 @@ export class Room {
         completed,
         startedAt: this.gameStartedAt,
         endedAt: new Date(),
+        rules: { ...this.settings, categories: [...this.settings.categories], chaosRules: [...this.settings.chaosRules] },
         turns: [...this.turns],
         players: standings.map((s) => {
           const p = this.players.get(s.playerId)!;
@@ -752,9 +1295,10 @@ export class Room {
             nickname: s.nickname,
             finalScore: s.score,
             rank: s.rank,
-            correctGuesses: p.correctGuesses,
-            drawings: p.drawings,
             isWinner: s.rank === 1 && s.score > 0,
+            team: p.team,
+            teamWin: p.team !== null && winningTeams.has(p.team),
+            ...p.stats,
           };
         }),
       });
@@ -765,13 +1309,20 @@ export class Room {
   }
 
   private resetTurn(): void {
+    this.stopPen();
     this.drawerId = null;
+    this.artists = [];
+    this.penIndex = 0;
+    this.penStrokes = 0;
     this.word = null;
-    this.wordGraphemes = [];
     this.choices = [];
     this.revealed.clear();
     this.correctCount = 0;
     this.turnDeltas.clear();
+    this.turnTeamBonuses.clear();
+    this.reactionCounts.clear();
+    this.chaos = null;
+    this.chaosCredited.clear();
     this.ops = [];
     this.redoStack = [];
     this.usedOpIds.clear();
@@ -779,6 +1330,18 @@ export class Room {
     this.totalPoints = 0;
     for (const p of this.players.values()) p.hasGuessed = false;
     this.deps.output.toAll('draw:history', []);
+  }
+
+  private rulesSummary(): string {
+    const s = this.settings;
+    const parts = [`${s.rounds} round${s.rounds === 1 ? '' : 's'}`, `${s.drawTime}s to draw`];
+    if (s.language === 'mixed') parts.push('English + Tamil words');
+    if (s.mode === 'chaos') parts.push('🌪️ Chaos mode');
+    if (s.collaborative) parts.push(`🤝 ${s.artistCount} artists per drawing`);
+    if (s.teams) parts.push(`⚔️ ${s.teamCount} teams`);
+    if (s.voting) parts.push('🗳️ voting');
+    if (!s.hints) parts.push('no hints');
+    return `Rules: ${parts.join(' · ')}`;
   }
 
   // ---------------------------------------------------------------- public lobbies
@@ -789,7 +1352,7 @@ export class Room {
       return;
     }
     const connected = this.connectedCount;
-    if (connected < LIMITS.MIN_PLAYERS_TO_START) {
+    if (connected < LIMITS.MIN_PLAYERS_TO_START || (this.settings.teams && connected < this.settings.teamCount)) {
       this.cancelAutoStart();
       return;
     }
@@ -801,8 +1364,12 @@ export class Room {
     this.autoStartTimer = setTimeout(() => {
       this.autoStartTimer = null;
       this.autoStartAt = null;
-      if (this.phase === 'lobby' && this.connectedCount >= LIMITS.MIN_PLAYERS_TO_START) this.startGame(null);
-      else this.touch();
+      if (this.phase !== 'lobby' || this.connectedCount < LIMITS.MIN_PLAYERS_TO_START) return this.touch();
+      try {
+        this.startGame(null);
+      } catch {
+        this.touch();
+      }
     }, delay);
   }
 
@@ -816,16 +1383,20 @@ export class Room {
 
   toState(): RoomState {
     const now = Date.now();
+    const currentArtist = this.currentArtistId;
     const players: PlayerPublic[] = [...this.players.values()].map((p) => ({
       id: p.id,
       nickname: p.nickname,
       avatar: p.avatar,
+      title: p.title,
       score: p.score,
       isHost: p.id === this.hostId,
       connected: p.connected,
       hasGuessed: p.hasGuessed,
-      isDrawer: p.id === this.drawerId,
+      isDrawer: this.phase === 'choosing' ? p.id === this.drawerId : p.id === currentArtist,
+      isArtist: this.artists.includes(p.id),
       muted: p.muted,
+      team: p.team,
     }));
     let hint: (string | null)[] | null = null;
     if (this.phase === 'drawing' && this.word) hint = buildHint(this.word.text, this.revealed);
@@ -840,15 +1411,31 @@ export class Room {
       visibility: this.visibility,
       listed: this.listed,
       phase: this.phase,
-      settings: { ...this.settings, categories: [...this.settings.categories] },
+      settings: { ...this.settings, categories: [...this.settings.categories], chaosRules: [...this.settings.chaosRules] },
       players,
       hostId: this.hostId,
       round: this.round,
       totalRounds: this.settings.rounds,
       drawerId: this.drawerId,
+      artistIds: [...this.artists],
+      currentArtistId: currentArtist,
+      artistRemainingMs: this.penEndsAt === null ? null : Math.max(0, this.penEndsAt - now),
       hint,
+      wordLanguage: this.phase === 'drawing' ? (this.word?.language ?? null) : null,
       phaseRemainingMs: this.remainingMs(),
       autoStartInMs: this.autoStartAt === null ? null : Math.max(0, this.autoStartAt - now),
+      chaos: this.phase === 'drawing' ? this.chaos : null,
+      teams: this.teamsPublic(),
+      voting: this.voting
+        ? {
+            candidates: this.voting.candidates,
+            categories: this.voting.categories,
+            voters: this.voting.votes.size,
+            closed: this.voting.closed,
+            winners: this.voting.winners,
+          }
+        : null,
+      reactions: Object.fromEntries(this.reactionCounts),
       lastTurn: this.phase === 'turnEnd' ? this.lastTurn : null,
       standings: this.phase === 'gameEnd' ? this.standings() : null,
       voteKicks,
@@ -869,13 +1456,21 @@ export class Room {
     return this.drawerId;
   }
 
+  get currentArtists(): readonly string[] {
+    return this.artists;
+  }
+
+  get currentChaos(): ChaosTurn | null {
+    return this.chaos;
+  }
+
   get currentRound(): number {
     return this.round;
   }
 
   private standings(): Standing[] {
     return rankByScore(
-      [...this.players.values()].map((p) => ({ playerId: p.id, nickname: p.nickname, avatar: p.avatar, score: p.score })),
+      [...this.players.values()].map((p) => ({ playerId: p.id, nickname: p.nickname, avatar: p.avatar, score: p.score, team: p.team })),
     );
   }
 
@@ -921,14 +1516,14 @@ export class Room {
 
   private assertHost(playerId: string): void {
     this.requirePlayer(playerId);
-    if (this.visibility !== 'private' || this.hostId !== playerId) {
-      throw new GameError('not-host', 'Only the host can do that.');
+    if (this.hostId !== playerId) {
+      throw new GameError('not-host', 'Only the room admin can do that.');
     }
   }
 
   private assertDrawing(playerId: string): void {
-    if (this.phase !== 'drawing' || playerId !== this.drawerId) {
-      throw new GameError('not-drawer', 'Only the current drawer can draw.');
+    if (this.phase !== 'drawing' || playerId !== this.currentArtistId) {
+      throw new GameError('not-drawer', 'Only the artist holding the pen can draw.');
     }
   }
 
@@ -962,6 +1557,5 @@ export class Room {
 }
 
 function toChoice(word: WordEntry): WordChoice {
-  return { text: word.text, difficulty: word.difficulty, category: word.category };
+  return { text: word.text, difficulty: word.difficulty, category: word.category, language: word.language };
 }
-

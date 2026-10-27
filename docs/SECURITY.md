@@ -15,6 +15,8 @@
 | 11 | Safe rendering of user content | Angular interpolation only (no `innerHTML`); nickname charset whitelist; control/bidi characters stripped | ✅ tested (`components.spec.ts`) |
 | 12 | Moderation | profanity censoring, nickname and room-name filter, player and room-name reports (room hidden after 3), local mute, host kick/ban/mute, public vote-kick; actions logged to `moderation_actions` | ✅ |
 | 12b | Private room privacy | listed private rooms are joinable by name (by design); unlisted rooms only by code/link and never appear in `/api/rooms` | ✅ tested |
+| 12c | Game-mode integrity | room rules host-only and locked in game; chaos palette and one-stroke enforced on the server; only the pen holder may draw; votes checked for self-vote, duplicates and the deadline; team changes only in the lobby; avatars/titles validated against server-stored achievements | ✅ tested |
+| 12d | Mute, report, ban | **Mute for me** hides all of a player's messages (earlier ones too) and reactions on that device, and is remembered. Anyone can report anyone in their room, once per player. The room host can kick or ban anyone, at any time, and a room ban also blocks a new guest account from the same connection. A player reported by **more than 10 different players** (`AUTO_BAN_REPORTS`) is banned permanently by player id and IP address. | ✅ tested (unit, socket integration, browser e2e) |
 | 13 | HTTPS/WSS | provided by Cloudflare Pages / Render; `upgrade-insecure-requests` in production CSP | ⚠️ configured, verify after deploy |
 | 14 | Security headers | Helmet (CSP, frame-ancestors none, nosniff…) on the server; generated `_headers` on Pages | ✅ verified locally |
 | 15 | CORS | allow-list from `CLIENT_ORIGINS` for REST and Socket.IO | ✅ |
@@ -23,6 +25,16 @@
 | 18 | Personal data | no e-mail, IP or real names stored; IPs only held in memory for rate limiting | ✅ |
 | 19 | DB TLS | `DATABASE_SSL=require` (encrypted); `verify` + CA cert for full verification | ⚠️ choose `verify` for stricter setups |
 | 20 | Dependency audit | `npm audit` clean on 2026-10-23 (Vite overridden to a patched version) | ✅ re-run regularly |
+
+## Automatic bans: how they work
+
+- **Distinct reporters:** each reporter counts once. A reporter is identified by their public IP, so one person with many guest accounts counts once. On shared/private networks (home Wi-Fi, LAN, mobile carrier NAT), where many people share an address, the reporter's player id is used instead.
+- **Over the limit:** at more than `AUTO_BAN_REPORTS` distinct reporters (default 10, so the 11th report), the player id is banned. If they were on a public IP, that IP is banned too.
+- **Not IP-banned:** loopback, private, link-local and carrier-grade NAT addresses. Banning those would lock out a whole home, school or mobile network, so only the player id is banned there.
+- **Privacy:** IP addresses are never stored in plain text, only as an HMAC keyed with `SESSION_SECRET` (`player_bans.ip_hash`, `reports.reported_ip_hash`). If you rotate `SESSION_SECRET`, existing IP bans stop matching, but player-id bans still apply.
+- **What a banned player sees:** they are removed from their room, their connection is refused, `POST /api/session` returns 403, and the app shows a "You have been banned" screen.
+- **Undo a mistaken ban:** run `DELETE FROM player_bans WHERE player_id = '<uuid>';` in the Supabase SQL editor (or locally), then restart the server, which loads bans at startup. To stop the same reports from triggering it again, also delete that player's rows from `reports`.
+- **Requires `TRUST_PROXY=1` on Render:** otherwise every player appears to come from the load balancer's private address, and IP bans are skipped (only player ids are banned).
 
 ## Known gaps
 

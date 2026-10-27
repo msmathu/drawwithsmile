@@ -6,7 +6,7 @@ import {
   isValidRoomName,
   sanitizeRoomName,
   type CreateRoomPayload,
-  type Language,
+  type WordLanguage,
   type RoomVisibility,
 } from '@dws/shared';
 import { Modal } from '../modal/modal';
@@ -83,7 +83,7 @@ export type CreateRoomOptions = Omit<CreateRoomPayload, 'nickname'>;
   `,
 })
 export class CreateRoomDialog implements OnInit {
-  readonly defaultLanguage = input<Language>('en');
+  readonly defaultLanguage = input<WordLanguage>('en');
   readonly busy = input(false);
   readonly closed = output<void>();
   readonly create = output<CreateRoomOptions>();
@@ -100,7 +100,7 @@ export class CreateRoomDialog implements OnInit {
   protected readonly name = signal('');
   protected readonly listed = signal(true);
   protected readonly maxPlayers = signal(8);
-  protected readonly language = signal<Language>('en');
+  protected readonly language = signal<WordLanguage>('en');
   protected readonly touched = signal(false);
   protected readonly nameValid = computed(() => isValidRoomName(sanitizeRoomName(this.name())));
 

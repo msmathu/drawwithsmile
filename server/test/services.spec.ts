@@ -223,3 +223,25 @@ describe('clientIp', () => {
     expect(clientIp('spoofed, 2.2.2.2', '10.0.0.1', 1)).toBe('2.2.2.2');
   });
 });
+
+describe('WordService Language Battle', () => {
+  it('mixes English and Tamil words in mixed mode', () => {
+    const words = new WordService(builtInWords());
+    const languages = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const choices = words.pickChoices({ language: 'mixed', difficulty: 'mixed', categories: [], exclude: new Set() });
+      expect(choices).toHaveLength(3);
+      const langs = new Set(choices.map((c) => c.language));
+      expect(langs.size).toBe(2); // every set of choices offers both languages
+      langs.forEach((l) => languages.add(l));
+    }
+    expect([...languages].sort()).toEqual(['en', 'ta']);
+  });
+
+  it('loads curated accepted answers from the seed list', () => {
+    const elephant = builtInWords().find((w) => w.text === 'யானை')!;
+    expect(elephant.accepted).toEqual(expect.arrayContaining(['yaanai', 'elephant']));
+    const icecream = builtInWords().find((w) => w.text === 'ice cream')!;
+    expect(icecream.accepted).toContain('icecream');
+  });
+});

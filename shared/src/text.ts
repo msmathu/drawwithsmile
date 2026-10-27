@@ -133,3 +133,19 @@ export function isValidRoomName(name: string): boolean {
 export function roomNameKey(name: string): string {
   return cleanText(name).toLocaleLowerCase('en-US');
 }
+
+/**
+ * True when the guess matches the word or one of its curated accepted answers
+ * (synonyms, spelling variants, transliterations). Matching uses normalizeGuess,
+ * which never removes Tamil vowel signs or the pulli, so different Tamil words
+ * (e.g. பால் / பல் / பலா) stay different. Spaces are ignored ("icecream" = "ice cream").
+ */
+export function isCorrectGuess(guess: string, answers: readonly string[]): boolean {
+  const g = normalizeGuess(guess);
+  if (!g) return false;
+  const compact = g.replace(/ /g, '');
+  return answers.some((answer) => {
+    const a = normalizeGuess(answer);
+    return a === g || a.replace(/ /g, '') === compact;
+  });
+}

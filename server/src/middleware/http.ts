@@ -24,7 +24,7 @@ export function requireSession(sessions: SessionService): RequestHandler {
 
 export const apiRateLimit = rateLimit({
   windowMs: 60_000,
-  limit: 120,
+  limit: 600, // ~10 open tabs per address polling the room list every 5 s
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: { code: 'rate-limited', message: 'Too many requests. Please slow down.' } },
@@ -32,7 +32,7 @@ export const apiRateLimit = rateLimit({
 
 export const sessionRateLimit = rateLimit({
   windowMs: 15 * 60_000,
-  limit: 60,
+  limit: 300, // generous: schools and offices share one address
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: { code: 'rate-limited', message: 'Too many requests. Please slow down.' } },

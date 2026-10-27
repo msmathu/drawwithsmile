@@ -47,16 +47,48 @@
 .grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'players' 'practice' 'settings' 'chat';
 }
 
-@media (min-width: 900px) {
+.players {
+  grid-area: players;
+}
+
+.settings {
+  grid-area: settings;
+}
+
+.practice {
+  grid-area: practice;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.practice h2 {
+  margin: 0;
+}
+
+.hint {
+  margin: -6px 0 0;
+}
+
+.chat {
+  grid-area: chat;
+}
+
+@media (min-width: 1000px) {
   .grid {
-    grid-template-columns: 280px 1fr 320px;
+    grid-template-columns: 300px minmax(0, 1fr) 320px;
+    grid-template-areas: 'players practice chat' 'settings practice chat';
+    grid-template-rows: auto 1fr;
     align-items: start;
   }
   .chat {
-    height: 520px;
+    height: 100%;
+    min-height: 520px;
   }
 }
 
@@ -79,7 +111,7 @@ h2 {
   gap: 12px;
 }
 
-.cats {
+.chips {
   border: 0;
   padding: 0;
   margin: 14px 0 0;
@@ -88,7 +120,7 @@ h2 {
   gap: 6px;
 }
 
-.cats legend {
+.chips legend {
   font-weight: 700;
   margin-bottom: 6px;
 }
@@ -132,4 +164,121 @@ h2 {
   margin: 2px 0 0;
   font-weight: 700;
   color: var(--grape);
+}
+
+.settings details {
+  border-top: 2px dashed var(--line);
+  padding: 8px 0;
+}
+
+.settings summary {
+  cursor: pointer;
+  font-weight: 800;
+  padding: 4px 0;
+}
+
+.settings details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.switch input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  flex: none;
+  accent-color: var(--teal);
+}
+
+.rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.segmented button {
+  border: 0;
+  padding: 6px 16px;
+  background: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.segmented button[aria-checked='true'] {
+  background: var(--sun);
+}
+
+.summary {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary li {
+  background: #fff7dc;
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.teams {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.teams h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.team {
+  border: 2px solid;
+  border-radius: 12px;
+  overflow: hidden;
+  padding-bottom: 6px;
+}
+
+.team-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+  color: #fff;
+}
+
+.team ul {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.team li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team .btn {
+  margin: 0 10px;
 }

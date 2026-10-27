@@ -2,8 +2,13 @@
  * Hand-curated starter word list. Seeded into the `words` table and also used as
  * a built-in fallback when the database is unavailable.
  *
- * Format: language -> category slug -> difficulty -> words separated by "|".
- * Add words freely; duplicates within a category are ignored by the seeder.
+ * Format: language -> category slug -> difficulty -> entries separated by "|".
+ * An entry is "word" or "word~accepted~accepted…": the extra answers (synonyms,
+ * spelling variants, transliterations, translations) also count as correct guesses.
+ * Only add answers that really mean the same thing.
+ *
+ * To add a language: add its code to `Language` / `WORD_LANGUAGES` in the shared
+ * package, add category labels in `CATEGORIES`, and add a block here.
  */
 import type { Difficulty, Language } from '@dws/shared';
 
@@ -12,66 +17,66 @@ type WordTable = Record<Language, Record<string, Record<Difficulty, string>>>;
 const TABLE: WordTable = {
   en: {
     animals: {
-      easy: 'cat|dog|fish|bird|cow|pig|duck|frog|lion|bear|snake|horse|mouse|rabbit|sheep|chicken|monkey|tiger|elephant|turtle',
+      easy: 'cat|dog|fish|bird|cow|pig|duck|frog|lion|bear|snake|horse|mouse|rabbit~bunny|sheep|chicken~hen|monkey|tiger|elephant|turtle',
       medium: 'giraffe|penguin|octopus|kangaroo|dolphin|zebra|camel|crocodile|butterfly|spider|owl|bat|shark|whale|peacock|squirrel|snail|parrot|crab|deer',
-      hard: 'chameleon|platypus|jellyfish|hedgehog|seahorse|flamingo|porcupine|armadillo|starfish|woodpecker|sloth|scorpion|walrus|koala|lobster',
+      hard: 'chameleon|platypus|jellyfish|hedgehog|seahorse~sea horse|flamingo|porcupine|armadillo|starfish~sea star|woodpecker|sloth|scorpion|walrus|koala|lobster',
     },
     food: {
-      easy: 'apple|banana|pizza|cake|egg|bread|cheese|carrot|ice cream|cookie|grapes|milk|burger|orange|cherry|candy|corn|lemon',
-      medium: 'sandwich|hot dog|donut|pancake|popcorn|watermelon|pineapple|spaghetti|noodles|mushroom|strawberry|taco|sushi|french fries|cupcake|broccoli|coconut|lollipop',
-      hard: 'dosa|idli|biryani|croissant|burrito|avocado|pretzel|dumpling|waffle|smoothie|kebab|samosa|cotton candy|popsicle|gingerbread',
+      easy: 'apple|banana|pizza|cake|egg|bread|cheese|carrot|ice cream~icecream|cookie~biscuit|grapes~grape|milk|burger~hamburger|orange|cherry|candy~sweet|corn|lemon',
+      medium: 'sandwich|hot dog~hotdog|donut~doughnut|pancake|popcorn|watermelon|pineapple|spaghetti~pasta|noodles|mushroom|strawberry|taco|sushi|french fries~fries~chips|cupcake|broccoli|coconut|lollipop~lolly',
+      hard: 'dosa~dosai|idli~idly|biryani~briyani|croissant|burrito|avocado|pretzel|dumpling|waffle|smoothie|kebab~kabab|samosa|cotton candy~candy floss|popsicle~ice lolly|gingerbread',
     },
     objects: {
       easy: 'chair|table|book|key|ball|cup|door|bed|clock|hat|shoe|lamp|umbrella|bell|star|sun|moon|tree|house|car|boat|kite|candle|pencil',
-      medium: 'scissors|ladder|glasses|backpack|toothbrush|mirror|balloon|guitar|crown|anchor|bicycle|envelope|hammer|sofa|pillow|bucket|compass|rainbow|lighthouse',
-      hard: 'hourglass|wheelbarrow|chandelier|parachute|skateboard|accordion|typewriter|magnifying glass|windmill|treasure chest|sewing machine|tent|volcano',
+      medium: 'scissors|ladder|glasses~spectacles|backpack~school bag|toothbrush|mirror|balloon|guitar|crown|anchor|bicycle~bike~cycle|envelope|hammer|sofa~couch|pillow|bucket|compass|rainbow|lighthouse',
+      hard: 'hourglass|wheelbarrow|chandelier|parachute|skateboard|accordion|typewriter|magnifying glass~magnifier|windmill|treasure chest|sewing machine|tent|volcano',
     },
     movies: {
       easy: 'alien|robot|ghost|pirate|cowboy|wizard|princess|superhero|dragon|king|monster|ninja',
-      medium: 'titanic|frozen|toy story|jurassic park|king kong|finding nemo|godzilla|spider-man|batman|harry potter|star wars|the lion king|zombie|vampire|mermaid|mummy',
-      hard: 'jaws|inception|avatar|the matrix|ghostbusters|back to the future|kung fu panda|cinderella|pinocchio|red carpet|clapperboard|baahubali',
+      medium: 'titanic|frozen|toy story|jurassic park|king kong|finding nemo|godzilla|spider-man~spiderman|batman|harry potter|star wars|the lion king~lion king|zombie|vampire|mermaid|mummy',
+      hard: 'jaws|inception|avatar|the matrix~matrix|ghostbusters|back to the future|kung fu panda|cinderella|pinocchio|red carpet|clapperboard|baahubali~bahubali',
     },
     sports: {
-      easy: 'goal|swimming|running|football|cricket|tennis|golf|boxing|skating|medal|whistle|chess',
+      easy: 'goal|swimming|running|football~soccer|cricket|tennis|golf|boxing|skating|medal|whistle|chess',
       medium: 'basketball|badminton|volleyball|baseball|hockey|surfing|cycling|skiing|bowling|archery|karate|kabaddi|trophy|referee|helmet',
-      hard: 'wrestling|javelin|marathon|gymnastics|pole vault|snowboarding|table tennis|weightlifting|high jump|scuba diving|fencing|rowing|hurdles',
+      hard: 'wrestling|javelin|marathon|gymnastics|pole vault|snowboarding|table tennis~ping pong|weightlifting~weight lifting|high jump|scuba diving~scuba|fencing|rowing|hurdles',
     },
     technology: {
-      easy: 'phone|computer|television|camera|radio|battery|keyboard|headphones|light bulb|rocket|laptop|remote|plug',
-      medium: 'satellite|printer|microphone|drone|smartwatch|calculator|joystick|charger|speaker|wifi|email|video game|tablet|antenna|solar panel|telescope',
-      hard: 'virtual reality|3d printer|circuit board|bluetooth|password|qr code|barcode|router|selfie stick|electric car|space station|microscope|hologram',
+      easy: 'phone~mobile~mobile phone~cell phone~smartphone|computer~pc|television~tv|camera|radio|battery|keyboard|headphones~headphone~earphones|light bulb~lightbulb~bulb|rocket|laptop|remote~remote control|plug',
+      medium: 'satellite|printer|microphone~mic|drone|smartwatch~smart watch|calculator|joystick|charger|speaker|wifi~wi-fi|email~e-mail|video game~videogame|tablet|antenna|solar panel|telescope',
+      hard: 'virtual reality~vr|3d printer|circuit board|bluetooth|password|qr code|barcode|router|selfie stick|electric car|space station|microscope|hologram',
     },
   },
   ta: {
     animals: {
-      easy: 'யானை|பூனை|நாய்|மீன்|மாடு|ஆடு|எலி|கோழி|சிங்கம்|புலி|குரங்கு|பாம்பு',
-      medium: 'குதிரை|மயில்|கிளி|ஆமை|முயல்|கரடி|தவளை|காகம்|வாத்து|நண்டு|மான்|ஆந்தை|எறும்பு',
-      hard: 'ஒட்டகம்|ஒட்டகச்சிவிங்கி|வண்ணத்துப்பூச்சி|சிலந்தி|முதலை|வௌவால்|திமிங்கலம்|கங்காரு|பென்குயின்|நத்தை',
+      easy: 'யானை~yaanai~yanai~elephant|பூனை~poonai~punai~cat|நாய்~naai~nai~dog|மீன்~meen~fish|மாடு~maadu~madu~cow|ஆடு~aadu~adu~goat|எலி~eli~rat|கோழி~kozhi~koli~hen|சிங்கம்~singam~lion|புலி~puli~tiger|குரங்கு~kurangu~monkey|பாம்பு~paambu~pambu~snake',
+      medium: 'குதிரை~kuthirai~kudhirai~horse|மயில்~mayil~peacock|கிளி~kili~parrot|ஆமை~aamai~amai~tortoise|முயல்~muyal~rabbit|கரடி~karadi~bear|தவளை~thavalai~frog|காகம்~kaagam~kakam~crow|வாத்து~vaathu~vathu~duck|நண்டு~nandu~crab|மான்~maan~deer|ஆந்தை~aanthai~anthai~owl|எறும்பு~erumbu~ant',
+      hard: 'ஒட்டகம்~ottagam~camel|ஒட்டகச்சிவிங்கி~ottagachivingi~giraffe|வண்ணத்துப்பூச்சி~vannathupoochi~butterfly|சிலந்தி~silanthi~spider|முதலை~muthalai~mudhalai~crocodile|வௌவால்~vavval~bat|திமிங்கலம்~thimingalam~whale|கங்காரு~kangaroo|பென்குயின்~penguin|நத்தை~nathai~snail',
     },
     food: {
-      easy: 'இட்லி|தோசை|வடை|பால்|முட்டை|சாதம்|கேக்|லட்டு',
-      medium: 'பொங்கல்|வாழைப்பழம்|மாம்பழம்|தேங்காய்|பிரியாணி|சப்பாத்தி|பரோட்டா|ஐஸ்கிரீம்|திராட்சை|தக்காளி|மிளகாய்|கரும்பு',
-      hard: 'பலாப்பழம்|தர்பூசணி|வெங்காயம்|பாயசம்|முறுக்கு|அப்பளம்|பஜ்ஜி|கொழுக்கட்டை|சமோசா',
+      easy: 'இட்லி~idli~idly|தோசை~dosai~dosa|வடை~vadai~vada|பால்~paal~milk|முட்டை~muttai~egg|சாதம்~saadham~satham~rice|கேக்~cake|லட்டு~laddu~ladoo',
+      medium: 'பொங்கல்~pongal|வாழைப்பழம்~vaazhaipazham~vazhaipazham~banana|மாம்பழம்~maambazham~mambazham~mango|தேங்காய்~thengai~coconut|பிரியாணி~biryani~briyani|சப்பாத்தி~chapathi~chapati|பரோட்டா~parotta~porotta|ஐஸ்கிரீம்~ice cream~icecream|திராட்சை~thiratchai~grapes|தக்காளி~thakkali~tomato|மிளகாய்~milagai~chilli~chili|கரும்பு~karumbu~sugarcane',
+      hard: 'பலாப்பழம்~palappazham~jackfruit|தர்பூசணி~tharboosani~watermelon|வெங்காயம்~vengayam~onion|பாயசம்~payasam~paayasam|முறுக்கு~murukku|அப்பளம்~appalam~papad|பஜ்ஜி~bajji|கொழுக்கட்டை~kozhukattai|சமோசா~samosa',
     },
     objects: {
-      easy: 'குடை|பந்து|பூ|மரம்|வீடு|கதவு|பை|பேனா|சாவி|மணி|நிலா|தொப்பி',
-      medium: 'கடிகாரம்|நாற்காலி|மேசை|புத்தகம்|கண்ணாடி|பூட்டு|விளக்கு|பட்டம்|சீப்பு|செருப்பு|ஜன்னல்|படகு|ஏணி|மழை|வானவில்|சூரியன்|பேருந்து|ரயில்|கப்பல்|விமானம்',
-      hard: 'கத்தரிக்கோல்|மெழுகுவர்த்தி|பம்பரம்|கோலம்|நட்சத்திரம்|மிதிவண்டி|குத்துவிளக்கு',
+      easy: 'குடை~kudai~umbrella|பந்து~panthu~pandhu~ball|பூ~poo~flower|மரம்~maram~tree|வீடு~veedu~house|கதவு~kathavu~kadhavu~door|பை~pai~bag|பேனா~pena~pen|சாவி~saavi~savi~key|மணி~mani~bell|நிலா~nila~moon|தொப்பி~thoppi~cap',
+      medium: 'கடிகாரம்~kadigaram~clock|நாற்காலி~naarkaali~narkali~chair|மேசை~mesai~table|புத்தகம்~puthagam~book|கண்ணாடி~kannadi~mirror|பூட்டு~poottu~lock|விளக்கு~vilakku~lamp|பட்டம்~pattam~kite|சீப்பு~seeppu~comb|செருப்பு~seruppu~slipper|ஜன்னல்~jannal~window|படகு~padagu~boat|ஏணி~eni~ladder|மழை~mazhai~rain|வானவில்~vaanavil~rainbow|சூரியன்~sooriyan~suriyan~sun|பேருந்து~perunthu~bus|ரயில்~rayil~train|கப்பல்~kappal~ship|விமானம்~vimanam~aeroplane~airplane',
+      hard: 'கத்தரிக்கோல்~kathirikol~scissors|மெழுகுவர்த்தி~mezhuguvarthi~candle|பம்பரம்~pambaram~spinning top|கோலம்~kolam~rangoli|நட்சத்திரம்~natchathiram~star|மிதிவண்டி~mithivandi~bicycle|குத்துவிளக்கு~kuthuvilakku',
     },
     movies: {
-      easy: 'பேய்|ராஜா|ராணி|திரை',
-      medium: 'வில்லன்|கதாநாயகன்|துப்பாக்கி|கில்லி|லியோ|பில்லா|கைதி|விக்ரம்',
-      hard: 'மாஸ்டர்|ஜெயிலர்|எந்திரன்|பாகுபலி|பாட்ஷா|அந்நியன்|சிவாஜி|பொன்னியின் செல்வன்|சூரரைப் போற்று',
+      easy: 'பேய்~pei~ghost|ராஜா~raja~king|ராணி~rani~queen|திரை~thirai~screen',
+      medium: 'வில்லன்~villain|கதாநாயகன்~kathanayagan~hero|துப்பாக்கி~thuppakki|கில்லி~ghilli~gilli|லியோ~leo|பில்லா~billa|கைதி~kaithi|விக்ரம்~vikram',
+      hard: 'மாஸ்டர்~master|ஜெயிலர்~jailer|எந்திரன்~enthiran~endhiran|பாகுபலி~baahubali~bahubali|பாட்ஷா~baasha~basha|அந்நியன்~anniyan|சிவாஜி~sivaji|பொன்னியின் செல்வன்~ponniyin selvan|சூரரைப் போற்று~soorarai pottru~soorarai potru',
     },
     sports: {
-      easy: 'ஓட்டம்|நீச்சல்|கிரிக்கெட்|கபடி|பதக்கம்|கோப்பை',
-      medium: 'கால்பந்து|கூடைப்பந்து|கைப்பந்து|பூப்பந்து|டென்னிஸ்|சதுரங்கம்|மட்டை|ஹாக்கி',
-      hard: 'சிலம்பம்|குத்துச்சண்டை|மல்யுத்தம்|உயரம் தாண்டுதல்|நீளம் தாண்டுதல்|கோல்ஃப்|ஜல்லிக்கட்டு|வில்வித்தை',
+      easy: 'ஓட்டம்~ottam~running|நீச்சல்~neechal~swimming|கிரிக்கெட்~cricket|கபடி~kabaddi|பதக்கம்~pathakkam~medal|கோப்பை~koppai~trophy',
+      medium: 'கால்பந்து~kaalpanthu~football|கூடைப்பந்து~koodaipanthu~basketball|கைப்பந்து~kaipanthu~volleyball|பூப்பந்து~pooppanthu~badminton|டென்னிஸ்~tennis|சதுரங்கம்~sathurangam~chess|மட்டை~mattai~bat|ஹாக்கி~hockey',
+      hard: 'சிலம்பம்~silambam|குத்துச்சண்டை~kuthuchandai~boxing|மல்யுத்தம்~malyutham~wrestling|உயரம் தாண்டுதல்~high jump|நீளம் தாண்டுதல்~long jump|கோல்ஃப்~golf|ஜல்லிக்கட்டு~jallikattu|வில்வித்தை~vilvithai~archery',
     },
     technology: {
-      easy: 'ரோபோ|கணினி|கைபேசி|வானொலி|கேமரா|ராக்கெட்',
-      medium: 'தொலைக்காட்சி|மின்விசிறி|மின்கலம்|விசைப்பலகை|மின்விளக்கு|ஹெட்போன்|கால்குலேட்டர்',
-      hard: 'செயற்கைக்கோள்|அச்சுப்பொறி|ஒலிவாங்கி|தொலைநோக்கி|நுண்ணோக்கி|மின்னஞ்சல்|இணையம்',
+      easy: 'ரோபோ~robo~robot|கணினி~kanini~computer|கைபேசி~கைப்பேசி~kaipesi~mobile~phone|வானொலி~vaanoli~radio|கேமரா~camera|ராக்கெட்~rocket',
+      medium: 'தொலைக்காட்சி~tholaikatchi~television~tv|மின்விசிறி~minvisiri~fan|மின்கலம்~minkalam~battery|விசைப்பலகை~visaippalagai~keyboard|மின்விளக்கு~minvilakku~bulb~light bulb|ஹெட்போன்~headphone~headphones|கால்குலேட்டர்~calculator',
+      hard: 'செயற்கைக்கோள்~seyarkaikol~satellite|அச்சுப்பொறி~achuppori~printer|ஒலிவாங்கி~olivangi~microphone|தொலைநோக்கி~tholainokki~telescope|நுண்ணோக்கி~nunnokki~microscope|மின்னஞ்சல்~minnanjal~email|இணையம்~inaiyam~internet',
     },
   },
 };
@@ -81,6 +86,8 @@ export interface SeedWord {
   category: string;
   difficulty: Difficulty;
   text: string;
+  /** Extra accepted answers. */
+  accepted: string[];
 }
 
 export function seedWords(): SeedWord[] {
@@ -90,11 +97,12 @@ export function seedWords(): SeedWord[] {
     for (const [category, levels] of Object.entries(categories)) {
       for (const [difficulty, list] of Object.entries(levels) as [Difficulty, string][]) {
         for (const raw of list.split('|')) {
-          const text = raw.trim().normalize('NFC');
-          const key = `${language}:${category}:${text}`;
-          if (!text || seen.has(key)) continue;
+          const [main = '', ...alternatives] = raw.split('~').map((s) => s.trim().normalize('NFC'));
+          const key = `${language}:${category}:${main}`;
+          if (!main || seen.has(key)) continue;
           seen.add(key);
-          out.push({ language, category, difficulty, text });
+          const accepted = [...new Set(alternatives.filter((a) => a && a !== main))];
+          out.push({ language, category, difficulty, text: main, accepted });
         }
       }
     }

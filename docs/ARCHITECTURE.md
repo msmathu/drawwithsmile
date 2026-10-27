@@ -44,10 +44,24 @@ Phases: `lobby → choosing → drawing → turnEnd → (choosing …) → gameE
 - **Late join:** rooms accept new players in any phase until they are full. A late joiner gets the current state, chat and drawing history, can guess immediately and enters the drawer rotation at the next round.
 - **Room-name reports** (`mod:reportRoom`) are stored against the room creator. After 3 distinct reports the room is hidden from the lists.
 
+## Game modes (all server-authoritative)
+
+| Feature | Where the rules live | Notes |
+| --- | --- | --- |
+| Custom room rules | `RoomSettings` + `validateSettings()` (shared), `settingsSchema` (server) | Ranges are checked by zod and combinations by `validateSettings`. Rules can only change in the lobby, and only the host can change them. |
+| Chaos Drawing | `Room.rollChaos()`, `assertChaosColour`, one-stroke checks | Each turn's `ChaosTurn` is public. The server enforces the palette and the one-stroke rule (no fill, undo or clear). Invisible ink, mirroring and the wobbly brush are input effects applied by the drawer's client. |
+| Multiple artists | `Room.artists`, `passPen`, `startPen` | Every artist gets the word. Only `currentArtistId` may draw. The pen passes on a timer, on request, or when the holder disconnects. The canvas is never reset between artists. At least one guesser always remains. |
+| Reactions & voting | `Room.react`, `startVoting`, `castVote`, `closeVoting` | The vote is a `voting` phase after each round. It rejects self-votes, duplicate votes and votes after the deadline, and closes early once everyone has voted. Thumbnails are captured by each client, so the server never stores images. |
+| Team Battle | `joinTeam`, `balanceTeams`, `teamsPublic`, `buildQueue` | Teams alternate as drawers. Team score is the members' total or average plus the team bonus. Teams rebalance in the lobby (auto mode), and late joiners go to the smallest team. |
+| Language Battle | `WordService.pickChoices`, `isCorrectGuess`, `words.accepted` | Mixed mode spreads the three choices across languages. Accepted answers are curated in the seed list. Normalisation is NFC plus case/space handling and never strips Tamil vowel signs or the pulli. To add a language: add its code to `Language`/`WORD_LANGUAGES` and `LANGUAGES`, add category labels, and add words in `server/seeds/words.ts`. Migration 004 already allows new language codes. |
+| Avatars & titles | `ProfileService`, `ACHIEVEMENT_RULES` SQL, `/api/me/profile` | Unlocks are computed from achievements stored by the server, and the API rejects locked choices. The chosen look is cached and pushed into the player's room live. |
+
 ## Drawing protocol
 
 - Coordinates are integers in `0..10000` relative to a fixed 4:3 canvas. Brush size is relative to an 800 px reference width. Any screen size renders the same picture, and resizing just re-renders from history.
 - The drawer renders locally at once and streams `draw:chunk` messages: up to 120 points, sent every 50 ms. The first chunk with a new id starts a stroke. The server validates each chunk (palette colour, allowed size, integer range, length), appends it to the turn history and forwards it to everyone except the drawer.
+- **Fill (paint bucket)** is sent as one small op `{color, x, y}`, not as pixels. Every client runs the same scanline flood fill at its own resolution, and replays fills in order when redrawing. The server caps fills at 60 per turn.
+- The lobby **practice canvas** uses a separate, local-only DrawingService instance. Nothing from it is sent to the server.
 - Undo, redo and clear are server operations broadcast to everyone. Clear is a history entry, so it can be undone. Limits per turn: 1,500 operations, 2,400 points per stroke, 60,000 points total. Socket messages are capped at 16 KB.
 - If the server rejects the drawer's input, it sends the authoritative `draw:history` back so the drawer's screen resyncs.
 - Mouse movements are **never** written to the database.

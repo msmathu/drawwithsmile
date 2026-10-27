@@ -4,7 +4,7 @@ import type { Ack, AckResponse, ClientToServerEvents, ServerToClientEvents } fro
 import { ACK_TIMEOUT_MS, API_URL } from '../config';
 import { SessionService } from './session.service';
 
-export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'offline';
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'banned';
 
 type ClientEvents = ClientToServerEvents;
 /** Client events whose last argument is an acknowledgement callback. */
@@ -40,6 +40,8 @@ export class SocketService {
     auth: (cb) => cb({ token: this.session.getToken() }),
   });
   private starting: Promise<void> | null = null;
+  /** This tab was taken over by the same player in another tab. */
+  private replaced = false;
 
   constructor() {
     this.socket.on('connect', () => {
@@ -47,9 +49,20 @@ export class SocketService {
       this.connections.update((n) => n + 1);
     });
     this.socket.on('disconnect', (reason) => {
+      if (this.status() === 'banned') return;
       this.status.set(reason === 'io client disconnect' ? 'offline' : 'reconnecting');
+      // The server only disconnects us on purpose. After a kick/ban, reconnect once so a ban
+      // is detected; a tab replaced by a newer one stays disconnected (no tug of war).
+      if (reason === 'io server disconnect' && !this.replaced) setTimeout(() => this.socket.connect(), 1_000);
     });
+    this.socket.on('session:replaced', () => (this.replaced = true));
     this.socket.on('connect_error', (err) => {
+      if (err.message === 'banned') {
+        // Permanently banned: stop retrying.
+        this.status.set('banned');
+        this.socket.disconnect();
+        return;
+      }
       this.status.set(this.connections() > 0 ? 'reconnecting' : 'connecting');
       if (err.message === 'unauthorized') {
         // Token rejected (e.g. server secret rotated): get a fresh session and retry.
@@ -63,9 +76,20 @@ export class SocketService {
   /** Connects once a session exists. Safe to call repeatedly. */
   connect(): Promise<void> {
     if (this.socket.connected) return Promise.resolve();
+    if (this.status() === 'banned') return Promise.reject(new Error('banned'));
     this.starting ??= (async () => {
       this.status.set('connecting');
-      await this.session.ensure();
+      try {
+        await this.session.ensure();
+      } catch (err) {
+        if (err instanceof Error && err.message === 'banned') {
+          this.status.set('banned');
+          throw err;
+        }
+        // Session endpoint busy or unreachable: with a saved identity, let the game
+        // server decide (it also answers "banned" or "unauthorized").
+        if (!this.session.getToken()) throw err;
+      }
       if (!this.socket.connected) this.socket.connect();
       await new Promise<void>((resolve) => {
         if (this.socket.connected) return resolve();

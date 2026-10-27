@@ -2,6 +2,11 @@ import { z } from 'zod';
 import {
   BRUSH_SIZES,
   CATEGORY_SLUGS,
+  CHAOS_RULE_IDS,
+  REACTIONS,
+  TEMP_BAN_MINUTES,
+  WORD_LANGUAGES,
+  type WordLanguage,
   LIMITS,
   PALETTE,
   REPORT_REASONS,
@@ -27,23 +32,65 @@ const nickname = z
   .refine(isValidNickname, `Nickname must be ${LIMITS.NICKNAME_MIN}–${LIMITS.NICKNAME_MAX} letters, numbers, spaces, _ . or -`)
   .refine((n) => !containsProfanity(n), 'Please choose a friendlier nickname.');
 
-const language = z.enum(['en', 'ta']);
+const language = z.enum([...WORD_LANGUAGES, 'mixed'] as unknown as [string, ...string[]]).transform((l) => l as WordLanguage);
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
+const bounded = (key: keyof typeof SETTINGS_BOUNDS) => int(SETTINGS_BOUNDS[key].min, SETTINGS_BOUNDS[key].max);
 
+/** Room rules. Ranges are checked here; combinations by validateSettings() in the Room. */
 export const settingsSchema = z
   .object({
-    drawTime: int(SETTINGS_BOUNDS.drawTime.min, SETTINGS_BOUNDS.drawTime.max),
-    rounds: int(SETTINGS_BOUNDS.rounds.min, SETTINGS_BOUNDS.rounds.max),
+    drawTime: bounded('drawTime'),
+    rounds: bounded('rounds'),
     language,
     difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
-    maxPlayers: int(SETTINGS_BOUNDS.maxPlayers.min, SETTINGS_BOUNDS.maxPlayers.max),
+    maxPlayers: bounded('maxPlayers'),
     categories: z
       .array(z.enum(CATEGORY_SLUGS as [string, ...string[]]))
       .max(CATEGORY_SLUGS.length)
       .transform((list) => [...new Set(list)]),
+    hints: z.boolean(),
+    lateJoin: z.boolean(),
+    mode: z.enum(['normal', 'chaos']),
+    chaosRules: z
+      .array(z.enum(CHAOS_RULE_IDS))
+      .max(CHAOS_RULE_IDS.length)
+      .transform((list) => [...new Set(list)]),
+    chaosRandom: z.boolean(),
+    collaborative: z.boolean(),
+    artistCount: bounded('artistCount'),
+    artistSeconds: bounded('artistSeconds'),
+    reactions: z.boolean(),
+    voting: z.boolean(),
+    votingSeconds: bounded('votingSeconds'),
+    voteBonus: bounded('voteBonus'),
+    teams: z.boolean(),
+    teamCount: bounded('teamCount'),
+    teamAssignment: z.enum(['auto', 'manual']),
+    teamScoring: z.enum(['total', 'average']),
+    teamBonus: bounded('teamBonus'),
   })
   .partial()
+  .strict();
+
+export const reactionSchema = z.object({ emoji: z.enum(REACTIONS) }).strict();
+
+export const voteSchema = z
+  .object({
+    category: z.enum(['funniest', 'creative', 'teamwork']),
+    turnNumber: int(1, 10_000),
+  })
+  .strict();
+
+export const teamSchema = z.object({ team: int(0, SETTINGS_BOUNDS.teamCount.max - 1) }).strict();
+
+/** REST: POST /api/me/profile */
+export const profileUpdateSchema = z
+  .object({
+    avatarId: int(0, 99).optional(),
+    titleId: z.string().max(40).nullable().optional(),
+    nickname: z.string().max(64).optional(),
+  })
   .strict();
 
 export const quickPlaySchema = z.object({ nickname, language });
@@ -98,9 +145,26 @@ export const strokeChunkSchema = z
   })
   .strict();
 
+export const fillSchema = z
+  .object({
+    id: z.string().regex(/^[A-Za-z0-9_-]{6,24}$/),
+    color: z.enum(PALETTE),
+    x: int(0, LIMITS.COORD_MAX),
+    y: int(0, LIMITS.COORD_MAX),
+  })
+  .strict();
+
 export const chatSchema = z.object({ text: z.string().min(1).max(LIMITS.CHAT_MAX * 3) });
 
 export const playerTargetSchema = z.object({ playerId: z.uuid() });
+
+/** Admin bans are always temporary and limited to the offered lengths. */
+export const banSchema = z
+  .object({
+    playerId: z.uuid(),
+    minutes: z.number().refine((m) => (TEMP_BAN_MINUTES as readonly number[]).includes(m), 'Choose a ban length of 5 or 30 minutes.'),
+  })
+  .strict();
 
 export const muteSchema = z.object({ playerId: z.uuid(), muted: z.boolean() });
 

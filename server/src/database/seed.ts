@@ -34,19 +34,23 @@ export async function seedDatabase(db: Database, logger: Logger): Promise<{ word
     for (const [id, group] of groups) {
       const params: unknown[] = [];
       const values = group.map((w, i) => {
-        params.push(id, w.text, w.difficulty);
-        return `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`;
+        params.push(id, w.text, w.difficulty, w.accepted);
+        return `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4}::text[])`;
       });
+      // New words are inserted; existing words get their accepted answers refreshed.
+      // Admin changes such as deactivating a word are left untouched.
       const result = await tx.query<{ id: number }>(
-        `INSERT INTO words (category_id, text, difficulty) VALUES ${values.join(', ')}
-         ON CONFLICT (category_id, text) DO NOTHING RETURNING id`,
+        `INSERT INTO words (category_id, text, difficulty, accepted) VALUES ${values.join(', ')}
+         ON CONFLICT (category_id, text) DO UPDATE SET accepted = EXCLUDED.accepted
+           WHERE words.accepted IS DISTINCT FROM EXCLUDED.accepted
+         RETURNING id`,
         params,
       );
       inserted += result.rows.length;
     }
   });
 
-  logger.info('Seeded words', { inserted, total: words.length });
+  logger.info('Seeded words', { insertedOrUpdated: inserted, total: words.length });
   return { words: inserted };
 }
 

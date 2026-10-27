@@ -13,6 +13,17 @@ import { Avatar } from '../../shared/components/avatar/avatar';
     @let s = state();
     <div class="container results">
       <h1>🎉 Game over!</h1>
+      @if (teamRanking(); as teams) {
+        <div class="teams">
+          @for (t of teams; track t.index; let i = $index) {
+            <div class="team-result" [style.background]="t.color" [class.winner]="i === 0 || t.score === teams[0]!.score">
+              <span>{{ i === 0 || t.score === teams[0]!.score ? '🏆' : '' }} {{ t.name }}</span>
+              <strong>{{ t.score }}</strong>
+              @if (t.bonus) { <small>incl. +{{ t.bonus }} bonus</small> }
+            </div>
+          }
+        </div>
+      }
       <div class="podium" aria-label="Top players">
         @for (p of podium(); track p.playerId) {
           <div class="place" [class]="'place p' + p.rank">
@@ -65,6 +76,13 @@ import { Avatar } from '../../shared/components/avatar/avatar';
     .rank { width: 32px; font-weight: 800; }
     .table .nick { flex: 1; text-align: left; font-weight: 600; }
     .center { justify-content: center; }
+    .teams { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    .team-result {
+      display: flex; flex-direction: column; align-items: center; min-width: 140px; padding: 8px 14px; color: #fff;
+      border: 2px solid var(--ink); border-radius: 14px; box-shadow: var(--shadow-sm);
+    }
+    .team-result strong { font-size: 1.6rem; }
+    .team-result.winner { outline: 4px solid var(--sun); }
   `,
 })
 export class Results {
@@ -75,6 +93,10 @@ export class Results {
 
   protected readonly podium = computed(() => (this.state().standings ?? []).filter((p) => p.rank <= 3).slice(0, 3));
   protected readonly seconds = computed(() => this.clock.secondsUntil(this.game.phaseDeadline()) ?? 0);
+  protected readonly teamRanking = computed(() => {
+    const teams = this.state().teams;
+    return teams ? [...teams].sort((a, b) => b.score - a.score) : null;
+  });
 
   protected medal(rank: number): string {
     return ['🥇', '🥈', '🥉'][rank - 1] ?? '';

@@ -1,23 +1,24 @@
-@let s = state();
+@let st = state();
+@let s = st.settings;
 <div class="container lobby">
   <section class="card head">
     <div>
-      <h1>{{ s.name }}</h1>
-      <p class="kind">{{ isPublic() ? '🚪 Public room' : (s.listed ? '🔒 Private room · listed' : '🔒 Private room · invite only') }}</p>
+      <h1>{{ st.name }}</h1>
+      <p class="kind">{{ isPublic() ? '🚪 Public room' : (st.listed ? '🔒 Private room · listed' : '🔒 Private room · invite only') }}</p>
       @if (isPublic()) {
         @if (autoStartSeconds() !== null) {
           <p class="status go">Game starts in {{ autoStartSeconds() }}s…</p>
         } @else {
-          <p class="status">Waiting for more players ({{ connected() }}/{{ s.settings.maxPlayers }})…</p>
+          <p class="status">Waiting for more players ({{ connected() }}/{{ s.maxPlayers }})… practise below while you wait!</p>
         }
       } @else {
-        <p class="muted">Share the code with friends. {{ game.isHost() ? 'Start when everyone is here.' : 'Waiting for ' + host() + ' to start.' }}</p>
+        <p class="muted">Share the code with friends. {{ game.isHost() ? 'Set the rules and start when everyone is here.' : 'Waiting for ' + host() + ' to start.' }}</p>
       }
     </div>
     @if (!isPublic()) {
       <div class="code-box">
         <span class="small muted">Room code</span>
-        <button type="button" class="code" (click)="copyCode()" title="Copy code">{{ s.code }}</button>
+        <button type="button" class="code" (click)="copyCode()" title="Copy code">{{ st.code }}</button>
         <button type="button" class="btn btn-sm" (click)="share()">🔗 Share invite</button>
       </div>
     }
@@ -25,55 +26,188 @@
 
   <div class="grid">
     <section class="card players">
-      <h2>Players <span class="muted small">{{ s.players.length }}/{{ s.settings.maxPlayers }}</span></h2>
-      <app-player-list [players]="s.players" [showScores]="false" />
+      <h2>Players <span class="muted small">{{ st.players.length }}/{{ s.maxPlayers }}</span></h2>
+      <app-player-list [players]="st.players" [showScores]="false" />
+
+      @if (st.teams; as teams) {
+        <div class="teams">
+          <h3>⚔️ Teams <span class="muted small">max {{ teamCapacity() }} each</span></h3>
+          @for (team of teams; track team.index) {
+            <div class="team" [style.border-color]="team.color">
+              <div class="team-head" [style.background]="team.color">
+                <strong>{{ team.name }}</strong>
+                <span>{{ team.memberIds.length }}/{{ teamCapacity() }}</span>
+              </div>
+              <ul>
+                @for (p of playersOf(team.index); track p.id) {
+                  <li><app-avatar [index]="p.avatar" [size]="22" /> {{ p.nickname }}</li>
+                } @empty {
+                  <li class="muted small">Nobody yet</li>
+                }
+              </ul>
+              @if (s.teamAssignment === 'manual' && myTeam() !== team.index) {
+                <button type="button" class="btn btn-sm" [disabled]="team.memberIds.length >= teamCapacity()"
+                  (click)="game.joinTeam(team.index)">Join {{ team.name }}</button>
+              }
+            </div>
+          }
+          @if (canEdit()) {
+            <button type="button" class="btn btn-sm" (click)="game.balanceTeams()">⚖️ Balance teams</button>
+          }
+        </div>
+      }
     </section>
 
     <section class="card settings">
-      <h2>Settings</h2>
+      <h2>{{ canEdit() ? 'Room rules' : 'Rules' }}</h2>
       @if (canEdit()) {
-        <div class="form">
-          <label class="field">Draw time
-            <select class="input" (change)="setNumber('drawTime', $any($event.target).value)">
-              @for (t of drawTimes; track t) { <option [value]="t" [selected]="t === s.settings.drawTime">{{ t }} seconds</option> }
-            </select>
-          </label>
-          <label class="field">Rounds
-            <select class="input" (change)="setNumber('rounds', $any($event.target).value)">
-              @for (r of roundOptions; track r) { <option [value]="r" [selected]="r === s.settings.rounds">{{ r }}</option> }
-            </select>
-          </label>
-          <label class="field">Words
-            <select class="input" (change)="setDifficulty($any($event.target).value)">
-              @for (d of difficulties; track d.value) { <option [value]="d.value" [selected]="d.value === s.settings.difficulty">{{ d.label }}</option> }
-            </select>
-          </label>
-          <label class="field">Language
-            <select class="input" (change)="setLanguage($any($event.target).value)">
-              @for (l of languages; track l.code) { <option [value]="l.code" [selected]="l.code === s.settings.language">{{ l.label }}</option> }
-            </select>
-          </label>
-          <label class="field">Max players
-            <select class="input" (change)="setNumber('maxPlayers', $any($event.target).value)">
-              @for (n of playerOptions; track n) { <option [value]="n" [selected]="n === s.settings.maxPlayers">{{ n }}</option> }
-            </select>
-          </label>
-        </div>
-        <fieldset class="cats">
-          <legend>Categories <span class="muted small">(none selected = all)</span></legend>
-          @for (c of categories; track c.slug) {
-            <button type="button" class="chip toggle" [attr.aria-pressed]="s.settings.categories.includes(c.slug)"
-              (click)="toggleCategory(c.slug)">{{ c.label[s.settings.language] }}</button>
+        <details open>
+          <summary>⏱️ Game</summary>
+          <div class="form">
+            <label class="field">Draw time
+              <select class="input" (change)="setNumber('drawTime', $any($event.target).value)">
+                @for (t of drawTimes; track t) { <option [value]="t" [selected]="t === s.drawTime">{{ t }} seconds</option> }
+              </select>
+            </label>
+            <label class="field">Rounds
+              <select class="input" (change)="setNumber('rounds', $any($event.target).value)">
+                @for (r of roundOptions; track r) { <option [value]="r" [selected]="r === s.rounds">{{ r }}</option> }
+              </select>
+            </label>
+            <label class="field">Max players
+              <select class="input" (change)="setNumber('maxPlayers', $any($event.target).value)">
+                @for (n of playerOptions; track n) { <option [value]="n" [selected]="n === s.maxPlayers">{{ n }}</option> }
+              </select>
+            </label>
+          </div>
+          <label class="switch"><input type="checkbox" [checked]="s.hints" (change)="update({ hints: $any($event.target).checked })" /> Letter hints as time runs out</label>
+          <label class="switch"><input type="checkbox" [checked]="s.lateJoin" (change)="update({ lateJoin: $any($event.target).checked })" /> Allow joining a game in progress</label>
+        </details>
+
+        <details open>
+          <summary>🔤 Words & Language Battle</summary>
+          <div class="form">
+            <label class="field">Language
+              <select class="input" (change)="setLanguage($any($event.target).value)">
+                @for (l of languages; track l.code) { <option [value]="l.code" [selected]="l.code === s.language">{{ l.label }}</option> }
+              </select>
+            </label>
+            <label class="field">Difficulty
+              <select class="input" (change)="setDifficulty($any($event.target).value)">
+                @for (d of difficulties; track d.value) { <option [value]="d.value" [selected]="d.value === s.difficulty">{{ d.label }}</option> }
+              </select>
+            </label>
+          </div>
+          <fieldset class="chips">
+            <legend>Categories <span class="muted small">(none selected = all)</span></legend>
+            @for (c of categories; track c.slug) {
+              <button type="button" class="chip toggle" [attr.aria-pressed]="s.categories.includes(c.slug)"
+                (click)="toggleCategory(c.slug)">{{ categoryLabel(c.slug) }}</button>
+            }
+          </fieldset>
+          @if (s.language !== 'en') {
+            <p class="small muted">Tamil words also accept common English spellings (e.g. "yaanai") and the English meaning.</p>
           }
-        </fieldset>
+        </details>
+
+        <details [open]="s.mode === 'chaos'">
+          <summary>🌪️ Mode: {{ s.mode === 'chaos' ? 'Chaos Drawing' : 'Normal' }}</summary>
+          <div class="segmented" role="radiogroup" aria-label="Game mode">
+            <button type="button" role="radio" [attr.aria-checked]="s.mode === 'normal'" (click)="update({ mode: 'normal' })">Normal</button>
+            <button type="button" role="radio" [attr.aria-checked]="s.mode === 'chaos'" (click)="update({ mode: 'chaos' })">🌪️ Chaos</button>
+          </div>
+          @if (s.mode === 'chaos') {
+            <ul class="rules">
+              @for (r of chaosRules; track r.id) {
+                <li>
+                  <label class="switch">
+                    <input type="checkbox" [checked]="s.chaosRules.includes(r.id)" (change)="toggleChaosRule(r.id)" />
+                    <span><strong>{{ r.icon }} {{ r.name }}</strong><br /><span class="small muted">{{ r.description }}</span></span>
+                  </label>
+                </li>
+              }
+            </ul>
+            <label class="switch"><input type="checkbox" [checked]="s.chaosRandom" (change)="update({ chaosRandom: $any($event.target).checked })" /> Random mix of these each turn (off = all of them every turn)</label>
+          }
+        </details>
+
+        <details [open]="s.collaborative">
+          <summary>🤝 One drawing, multiple artists {{ s.collaborative ? '· on' : '' }}</summary>
+          <label class="switch"><input type="checkbox" [checked]="s.collaborative" [disabled]="s.teams"
+            (change)="update({ collaborative: $any($event.target).checked })" /> Artists take turns with the pen on the same drawing</label>
+          @if (s.teams) { <p class="small muted">Turn off Team Battle to use collaborative drawing.</p> }
+          @if (s.collaborative) {
+            <div class="form">
+              <label class="field">Artists per drawing
+                <select class="input" (change)="setNumber('artistCount', $any($event.target).value)">
+                  @for (n of artistOptions; track n) { <option [value]="n" [selected]="n === s.artistCount">{{ n }}</option> }
+                </select>
+              </label>
+              <label class="field">Pen time each
+                <select class="input" (change)="setNumber('artistSeconds', $any($event.target).value)">
+                  @for (n of artistSecondsOptions; track n) { <option [value]="n" [selected]="n === s.artistSeconds">{{ n }} seconds</option> }
+                </select>
+              </label>
+            </div>
+          }
+        </details>
+
+        <details [open]="s.voting">
+          <summary>🎉 Reactions & voting</summary>
+          <label class="switch"><input type="checkbox" [checked]="s.reactions" (change)="update({ reactions: $any($event.target).checked })" /> Live emoji reactions 😂 ❤️ 🔥 👏 🤔</label>
+          <label class="switch"><input type="checkbox" [checked]="s.voting" (change)="update({ voting: $any($event.target).checked })" /> Vote for the best drawings after each round</label>
+          @if (s.voting) {
+            <div class="form">
+              <label class="field">Voting time
+                <select class="input" (change)="setNumber('votingSeconds', $any($event.target).value)">
+                  @for (n of votingSecondsOptions; track n) { <option [value]="n" [selected]="n === s.votingSeconds">{{ n }} seconds</option> }
+                </select>
+              </label>
+              <label class="field">Winner bonus
+                <select class="input" (change)="setNumber('voteBonus', $any($event.target).value)">
+                  @for (n of bonusOptions; track n) { <option [value]="n" [selected]="n === s.voteBonus">{{ n === 0 ? 'No bonus' : '+' + n + ' points' }}</option> }
+                </select>
+              </label>
+            </div>
+          }
+        </details>
+
+        <details [open]="s.teams">
+          <summary>⚔️ Team Battle {{ s.teams ? '· on' : '' }}</summary>
+          <label class="switch"><input type="checkbox" [checked]="s.teams" [disabled]="s.collaborative"
+            (change)="update({ teams: $any($event.target).checked })" /> Play in teams</label>
+          @if (s.collaborative) { <p class="small muted">Turn off collaborative drawing to use Team Battle.</p> }
+          @if (s.teams) {
+            <div class="form">
+              <label class="field">Teams
+                <select class="input" (change)="setNumber('teamCount', $any($event.target).value)">
+                  @for (n of teamCountOptions; track n) { <option [value]="n" [selected]="n === s.teamCount">{{ n }} teams</option> }
+                </select>
+              </label>
+              <label class="field">Team selection
+                <select class="input" (change)="update({ teamAssignment: $any($event.target).value })">
+                  <option value="auto" [selected]="s.teamAssignment === 'auto'">Automatic (balanced)</option>
+                  <option value="manual" [selected]="s.teamAssignment === 'manual'">Players choose</option>
+                </select>
+              </label>
+              <label class="field">Team score
+                <select class="input" (change)="update({ teamScoring: $any($event.target).value })">
+                  <option value="total" [selected]="s.teamScoring === 'total'">Total of members</option>
+                  <option value="average" [selected]="s.teamScoring === 'average'">Average (fair for uneven teams)</option>
+                </select>
+              </label>
+              <label class="field">Team bonus
+                <select class="input" (change)="setNumber('teamBonus', $any($event.target).value)">
+                  @for (n of bonusOptions; track n) { <option [value]="n" [selected]="n === s.teamBonus">{{ n === 0 ? 'No bonus' : '+' + n + ' when a whole team guesses' }}</option> }
+                </select>
+              </label>
+            </div>
+          }
+        </details>
       } @else {
-        <dl class="summary">
-          <dt>Draw time</dt><dd>{{ s.settings.drawTime }} s</dd>
-          <dt>Rounds</dt><dd>{{ s.settings.rounds }}</dd>
-          <dt>Words</dt><dd class="cap">{{ s.settings.difficulty }}</dd>
-          <dt>Language</dt><dd>{{ languageLabel() }}</dd>
-          <dt>Categories</dt><dd>{{ categoryLabel() }}</dd>
-        </dl>
+        <ul class="summary">
+          @for (line of summary(); track $index) { <li>{{ line }}</li> }
+        </ul>
       }
       <div class="actions">
         @if (canEdit()) {
@@ -85,8 +219,15 @@
       </div>
     </section>
 
+    <section class="card practice" aria-labelledby="practice-title">
+      <h2 id="practice-title">✏️ Practice while you wait</h2>
+      <p class="small muted hint">Only you can see this canvas. It clears when the game starts.</p>
+      <app-canvas-board [canDraw]="true" />
+      <app-drawing-toolbar />
+    </section>
+
     <section class="chat">
-      <app-chat-panel [messages]="game.messages()" (send)="game.sendChat($event)" />
+      <app-chat-panel [messages]="game.visibleMessages()" (send)="game.sendChat($event)" />
     </section>
   </div>
 </div>

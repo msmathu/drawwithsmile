@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { REPORT_REASONS, type PlayerPublic, type ReportReason } from '@dws/shared';
+import { REPORT_REASONS, TEAMS, TEMP_BAN_MINUTES, titleName, type PlayerPublic, type ReportReason } from '@dws/shared';
 import { GameService } from '../../../core/services/game.service';
 import { Avatar } from '../avatar/avatar';
 
@@ -21,16 +21,17 @@ const REASON_LABELS: Record<PlayerReportReason, string> = {
   template: `
     <ul class="players" [class.compact]="compact()">
       @for (p of sorted(); track p.id) {
-        <li class="player" [class.me]="p.id === game.playerId()" [class.offline]="!p.connected"
+        <li class="player" [style.border-left-color]="teamColor(p)" [class.team]="p.team !== null" [class.me]="p.id === game.playerId()" [class.offline]="!p.connected"
           [class.drawing]="p.isDrawer" [class.guessed]="p.hasGuessed">
           <button type="button" class="who" [disabled]="p.id === game.playerId()" (click)="toggle(p.id)"
             [attr.aria-expanded]="openId() === p.id" [attr.aria-label]="'Options for ' + p.nickname">
-            <app-avatar [index]="p.avatar" [size]="compact() ? 30 : 36" />
+            <app-avatar [index]="p.avatar" [size]="compact() ? 26 : 36" />
             <span class="name">
               <span class="nick">{{ p.nickname }}@if (p.id === game.playerId()) { <span class="muted"> (you)</span> }</span>
+              @if (title(p); as t) { <span class="title">🏅 {{ t }}</span> }
               <span class="tags">
-                @if (p.isHost) { <span title="Host">👑</span> }
-                @if (p.isDrawer) { <span title="Drawing">✏️</span> }
+                @if (p.isHost) { <span class="admin" title="Room admin (host)">👑 Admin</span> }
+                @if (p.isDrawer) { <span title="Drawing">✏️</span> } @else if (p.isArtist) { <span title="Artist (waiting for the pen)">🎨</span> }
                 @if (p.hasGuessed) { <span title="Guessed it">✅</span> }
                 @if (p.muted || game.locallyMuted().has(p.id)) { <span title="Muted">🔇</span> }
                 @if (!p.connected) { <span class="small muted">offline</span> }
@@ -41,20 +42,28 @@ const REASON_LABELS: Record<PlayerReportReason, string> = {
           </button>
           @if (openId() === p.id) {
             <div class="menu">
-              <button type="button" class="btn btn-sm" (click)="game.toggleLocalMute(p.id); close()">
-                {{ game.locallyMuted().has(p.id) ? 'Unmute for me' : 'Mute for me' }}
+              <button type="button" class="btn btn-sm" (click)="game.toggleLocalMute(p.id); close()"
+                [title]="game.locallyMuted().has(p.id) ? 'Show their messages again' : 'Hide all their messages and reactions on your screen'">
+                {{ game.locallyMuted().has(p.id) ? '🔊 Unmute for me' : '🔇 Mute for me' }}
               </button>
-              @if (isPrivateHost()) {
-                <button type="button" class="btn btn-sm" (click)="game.setMuted(p.id, !p.muted); close()">
-                  {{ p.muted ? 'Unmute in room' : 'Mute in room' }}
-                </button>
-                <button type="button" class="btn btn-sm" (click)="game.kick(p.id, false); close()">Kick</button>
-                <button type="button" class="btn btn-sm btn-danger" (click)="game.kick(p.id, true); close()">Ban</button>
+              @if (isAdmin()) {
+                <div class="admin-tools">
+                  <span class="small muted">👑 Admin:</span>
+                  <button type="button" class="btn btn-sm" (click)="game.setMuted(p.id, !p.muted); close()">
+                    {{ p.muted ? 'Unmute in room' : 'Mute in room' }}
+                  </button>
+                  <button type="button" class="btn btn-sm" (click)="game.kick(p.id, false); close()">Kick</button>
+                  @for (m of banMinutes; track m) {
+                    <button type="button" class="btn btn-sm btn-warn" (click)="tempBan(p, m)">⏳ Ban {{ m }} min</button>
+                  }
+                </div>
               }
-              @if (isPublic()) {
+              @if (isPublic() && !hasAdmin()) {
                 <button type="button" class="btn btn-sm" (click)="game.voteKick(p.id); close()">Vote to kick</button>
               }
-              @if (reporting()) {
+              @if (game.reported().has(p.id)) {
+                <span class="small muted reported">Reported ✓</span>
+              } @else if (reporting()) {
                 <div class="reasons">
                   @for (r of reasons; track r) {
                     <button type="button" class="btn btn-sm" (click)="game.report(p.id, r); close()">{{ label(r) }}</button>
@@ -76,6 +85,8 @@ const REASON_LABELS: Record<PlayerReportReason, string> = {
     .player.drawing { background: #e3eeff; }
     .player.guessed { background: #dcf8ea; }
     .player.offline { opacity: 0.55; }
+    .player.team { border-left-width: 8px; }
+    .title { font-size: 0.75rem; font-weight: 700; color: var(--grape); }
     .who {
       width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: none; border: 0;
       text-align: left; cursor: pointer; border-radius: 12px;
@@ -87,7 +98,17 @@ const REASON_LABELS: Record<PlayerReportReason, string> = {
     .score { font-weight: 800; font-size: 1.1rem; }
     .menu, .reasons { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 10px; }
     .reasons { padding: 0; }
-    .compact .who { padding: 4px 8px; }
+    .compact .who { padding: 3px 6px; gap: 6px; }
+    .compact .player { border-radius: 10px; box-shadow: none; }
+    .compact .nick { font-size: 0.9rem; }
+    .compact .score { font-size: 0.95rem; }
+    .compact .tags { font-size: 0.75rem; }
+    .compact .menu { padding: 0 6px 6px; }
+    .compact .menu .btn { min-height: 30px; padding: 2px 8px; font-size: 0.8rem; }
+    .admin { font-weight: 800; color: #b45309; }
+    .admin-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; width: 100%; padding: 6px; border-radius: 10px; background: #fff7dc; }
+    .btn-warn { background: #ffe7a8; }
+    .reported { align-self: center; font-weight: 700; }
   `,
 })
 export class PlayerList {
@@ -105,7 +126,23 @@ export class PlayerList {
     this.sortByScore() ? [...this.players()].sort((a, b) => b.score - a.score) : this.players(),
   );
   protected readonly isPublic = computed(() => this.game.state()?.visibility === 'public');
-  protected readonly isPrivateHost = computed(() => !this.isPublic() && this.game.isHost());
+  protected readonly isAdmin = computed(() => this.game.isHost());
+  protected readonly hasAdmin = computed(() => !!this.game.state()?.hostId);
+  protected readonly banMinutes = TEMP_BAN_MINUTES;
+
+  protected title(p: PlayerPublic): string | null {
+    return titleName(p.title);
+  }
+
+  protected teamColor(p: PlayerPublic): string | null {
+    return p.team === null ? null : (TEAMS[p.team]?.color ?? null);
+  }
+
+  /** Admin only: temporary ban; they can rejoin when it ends. */
+  protected tempBan(p: PlayerPublic, minutes: number): void {
+    if (confirm(`Ban ${p.nickname} from this room for ${minutes} minutes? They can still play in other rooms.`)) void this.game.banFor(p.id, minutes);
+    this.close();
+  }
 
   protected votes(id: string): number {
     return this.game.state()?.voteKicks[id] ?? 0;

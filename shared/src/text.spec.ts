@@ -95,3 +95,47 @@ describe('room names', () => {
     expect(roomNameKey('The KITTEN  Room')).toBe(roomNameKey('the kitten room'));
   });
 });
+
+describe('Language Battle guess matching', () => {
+  it('accepts the word and curated alternatives, ignoring case and spaces', async () => {
+    const { isCorrectGuess } = await import('./text.js');
+    const answers = ['ice cream', 'icecream'];
+    expect(isCorrectGuess('Ice Cream', answers)).toBe(true);
+    expect(isCorrectGuess('ICECREAM', answers)).toBe(true);
+    expect(isCorrectGuess('ice', answers)).toBe(false);
+    expect(isCorrectGuess('யானை', ['யானை', 'yaanai', 'elephant'])).toBe(true);
+    expect(isCorrectGuess('Yaanai', ['யானை', 'yaanai', 'elephant'])).toBe(true);
+  });
+
+  it('keeps different Tamil words different', async () => {
+    const { isCorrectGuess } = await import('./text.js');
+    // milk / tooth / jackfruit differ only by vowel signs and the pulli.
+    expect(isCorrectGuess('பல்', ['பால்'])).toBe(false);
+    expect(isCorrectGuess('பலா', ['பால்'])).toBe(false);
+    expect(isCorrectGuess('பால', ['பால்'])).toBe(false);
+    expect(isCorrectGuess('பால்', ['பால்'])).toBe(true);
+  });
+
+  it('treats canonically equivalent Tamil spellings as the same word', async () => {
+    const { isCorrectGuess } = await import('./text.js');
+    const composed = 'கொடி'; // uses U+0BCA
+    const decomposed = 'கொடி'; // same letters, vowel sign split in two
+    expect(composed).not.toBe(decomposed);
+    expect(isCorrectGuess(decomposed, [composed])).toBe(true);
+  });
+});
+
+describe('rewards and rule helpers', () => {
+  it('unlocks avatars and titles only from earned achievements', async () => {
+    const { unlockedAvatarIds, unlockedTitleIds, AVATAR_COUNT } = await import('./constants.js');
+    expect(unlockedAvatarIds(new Set())).toHaveLength(AVATAR_COUNT);
+    expect(unlockedAvatarIds(new Set(['TEAM_CHAMPION']))).toContain(17);
+    expect(unlockedTitleIds(new Set())).toEqual([]);
+    expect(unlockedTitleIds(new Set(['FIRST_GAME', 'CHAOS_SURVIVOR']))).toEqual(['beginner-artist', 'chaos-survivor']);
+  });
+
+  it('accepts the default rules', async () => {
+    const { validateSettings, DEFAULT_SETTINGS } = await import('./constants.js');
+    expect(validateSettings(DEFAULT_SETTINGS)).toBeNull();
+  });
+});

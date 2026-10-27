@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, type OnDestroy, type OnInit, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { LANGUAGES, LIMITS, isValidNickname, roomNameKey, sanitizeNickname, type Language, type RoomDirectory, type RoomListing } from '@dws/shared';
+import { LANGUAGES, LIMITS, isValidNickname, roomNameKey, sanitizeNickname, type RoomDirectory, type RoomListing, type WordLanguage } from '@dws/shared';
 import { ApiService } from '../../core/services/api.service';
 import { GameService } from '../../core/services/game.service';
-import { PreferencesService, randomNickname } from '../../core/services/preferences.service';
+import { PreferencesService, parseLanguage, randomNickname } from '../../core/services/preferences.service';
 import { SocketService } from '../../core/services/socket.service';
 import { CreateRoomDialog, type CreateRoomOptions } from '../../shared/components/create-room-dialog/create-room-dialog';
 import { Logo } from '../../shared/components/logo/logo';
@@ -29,7 +29,7 @@ export class HomePage implements OnInit, OnDestroy {
   protected readonly languages = LANGUAGES;
   protected readonly maxNickname = LIMITS.NICKNAME_MAX;
   protected readonly nickname = signal(this.prefs.nickname() || randomNickname());
-  protected readonly language = signal<Language>(this.prefs.language());
+  protected readonly language = signal<WordLanguage>(this.prefs.language());
   protected readonly roomQuery = signal('');
   protected readonly privateSearch = signal('');
   protected readonly busy = signal<string | null>(null);
@@ -65,7 +65,7 @@ export class HomePage implements OnInit, OnDestroy {
   }
 
   protected setLanguage(value: string): void {
-    const lang: Language = value === 'ta' ? 'ta' : 'en';
+    const lang = parseLanguage(value);
     this.language.set(lang);
     this.prefs.setLanguage(lang);
   }

@@ -5,8 +5,10 @@ import { usesDevSecret, type AppConfig } from './config/env.js';
 import { createDatabase, type Database } from './database/db.js';
 import { runMigrations } from './database/migrate.js';
 import { WordRepository } from './database/repositories.js';
-import { isWordTableEmpty, seedDatabase } from './database/seed.js';
+import { seedDatabase } from './database/seed.js';
 import { PersistenceService } from './services/persistence.service.js';
+import { ModerationService } from './services/moderation.service.js';
+import { ProfileService } from './services/profile.service.js';
 import { SessionService } from './services/session.service.js';
 import { WordService } from './services/word.service.js';
 import { attachSocketServer, onlineCount, type SocketLayer } from './sockets/socket-server.js';
@@ -16,6 +18,7 @@ export interface GameServer {
   httpServer: HttpServer;
   sockets: SocketLayer;
   persistence: PersistenceService;
+  moderation: ModerationService;
   sessions: SessionService;
   db: Database | null;
   listen(port?: number, host?: string): Promise<number>;
@@ -30,7 +33,8 @@ async function connectDatabase(config: AppConfig, logger: Logger): Promise<Datab
     await db.query('SELECT 1');
     if (config.db.runMigrationsOnStart) {
       await runMigrations(db, logger);
-      if (await isWordTableEmpty(db)) await seedDatabase(db, logger);
+      // Idempotent: adds new starter words and refreshes accepted answers.
+      await seedDatabase(db, logger);
     }
     logger.info('Database ready', { mode: config.db.mode });
     return db;
@@ -56,25 +60,31 @@ export async function createGameServer(
 
   const persistence = new PersistenceService(db, logger);
   const sessions = new SessionService(config.sessionSecret);
+  const profiles = new ProfileService(db, logger);
+  const moderation = new ModerationService(db, config.sessionSecret, config.autoBanReports, logger);
+  await moderation.init();
 
   let sockets: SocketLayer | undefined;
   const app = createApp(config, logger, {
     sessions,
     words,
     persistence,
+    profiles,
+    moderation,
     rooms: () => sockets!.rooms,
     online: () => (sockets ? onlineCount(sockets) : 0),
     dbKind: db?.kind ?? null,
     startedAt: Date.now(),
   });
   const httpServer = createServer(app);
-  sockets = attachSocketServer(httpServer, { config, logger, sessions, words, persistence });
+  sockets = attachSocketServer(httpServer, { config, logger, sessions, words, persistence, profiles, moderation });
   const layer = sockets;
 
   return {
     httpServer,
     sockets: layer,
     persistence,
+    moderation,
     sessions,
     db,
     listen(port = config.port, host = config.host) {

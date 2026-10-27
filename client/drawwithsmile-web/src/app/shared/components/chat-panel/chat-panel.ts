@@ -46,7 +46,7 @@ import { LIMITS, type ChatMessage } from '@dws/shared';
       flex: 1; display: flex; flex-direction: column; min-height: 0; background: #fff;
       border: 2px solid var(--ink); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
     }
-    .log { flex: 1; overflow-y: auto; margin: 0; padding: 8px 10px; list-style: none; min-height: 120px; overscroll-behavior: contain; }
+    .log { flex: 1; overflow-y: auto; margin: 0; padding: 8px 10px; list-style: none; min-height: 60px; overscroll-behavior: contain; }
     .msg { padding: 3px 6px; border-radius: 8px; overflow-wrap: anywhere; font-size: 0.95rem; }
     .msg + .msg { margin-top: 2px; }
     .system { color: var(--ink-soft); font-style: italic; font-size: 0.88rem; }
@@ -55,7 +55,14 @@ import { LIMITS, type ChatMessage } from '@dws/shared';
     .warning { background: #ffe1e1; color: #a1262a; font-weight: 600; }
     .guessed-chat { color: #0f6b40; }
     .composer { display: flex; gap: 8px; padding: 8px; border-top: 2px solid var(--line); }
-    .composer .input { min-height: 42px; }
+    .composer .input { min-height: 42px; min-width: 0; }
+    @media (max-width: 600px) {
+      .log { padding: 6px 8px; }
+      .msg { font-size: 0.85rem; padding: 2px 4px; }
+      .composer { padding: 6px; gap: 6px; }
+      .composer .input { min-height: 38px; padding: 6px 10px; font-size: 16px; }
+      .composer .btn { min-height: 38px; padding: 4px 10px; }
+    }
   `,
 })
 export class ChatPanel {

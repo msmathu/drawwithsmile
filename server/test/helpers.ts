@@ -9,11 +9,11 @@ export const P3 = '33333333-3333-4333-8333-333333333333';
 export const P4 = '44444444-4444-4444-8444-444444444444';
 
 export const TEST_WORDS: WordEntry[] = [
-  { id: 1, text: 'banana', difficulty: 'easy', category: 'food', language: 'en' },
-  { id: 2, text: 'giraffe', difficulty: 'medium', category: 'animals', language: 'en' },
-  { id: 3, text: 'hot dog', difficulty: 'hard', category: 'food', language: 'en' },
-  { id: 4, text: 'yellow', difficulty: 'easy', category: 'objects', language: 'en' },
-  { id: 5, text: 'யானை', difficulty: 'easy', category: 'animals', language: 'ta' },
+  { id: 1, text: 'banana', difficulty: 'easy', category: 'food', language: 'en', accepted: [] },
+  { id: 2, text: 'giraffe', difficulty: 'medium', category: 'animals', language: 'en', accepted: [] },
+  { id: 3, text: 'hot dog', difficulty: 'hard', category: 'food', language: 'en', accepted: [] },
+  { id: 4, text: 'yellow', difficulty: 'easy', category: 'objects', language: 'en', accepted: [] },
+  { id: 5, text: 'யானை', difficulty: 'easy', category: 'animals', language: 'ta', accepted: ['yaanai', 'elephant'] },
 ];
 
 export interface SentEvent {
@@ -24,7 +24,7 @@ export interface SentEvent {
 }
 
 /** A Room wired to an in-memory output so tests can inspect everything it sends. */
-export function createRoomHarness(visibility: RoomVisibility = 'private', settings: Partial<RoomSettings> = {}) {
+export function createRoomHarness(visibility: RoomVisibility = 'private', settings: Partial<RoomSettings> = {}, creatorId: string | null = null) {
   const sent: SentEvent[] = [];
   const removed: { playerId: string; reason: string | null }[] = [];
   const games: GameSummary[] = [];
@@ -43,7 +43,7 @@ export function createRoomHarness(visibility: RoomVisibility = 'private', settin
     words: new WordService(TEST_WORDS),
     output,
     hooks: { onGameEnd: (s) => games.push(s) },
-  });
+  }, { creatorId });
 
   /** Events a given player would have received. */
   const receivedBy = (playerId: string, event?: ServerEventName) =>

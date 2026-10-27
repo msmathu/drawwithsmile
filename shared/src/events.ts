@@ -2,14 +2,16 @@ import type {
   ChatMessage,
   ClearOp,
   DrawOp,
-  Language,
+  FillOp,
+  VoteCategory,
+  WordLanguage,
   RoomSettings,
   RoomVisibility,
   RoomState,
   StrokeChunk,
   WordChoice,
 } from './types.js';
-import type { REPORT_REASONS } from './constants.js';
+import type { REACTIONS, REPORT_REASONS } from './constants.js';
 
 export type ErrorCode =
   | 'bad-request'
@@ -36,6 +38,7 @@ export type AckResponse<T = null> = { ok: true; data: T } | { ok: false; error: 
 export type Ack<T = null> = (response: AckResponse<T>) => void;
 
 export type ReportReason = (typeof REPORT_REASONS)[number];
+export type ReactionEmoji = (typeof REACTIONS)[number];
 
 export interface JoinResult {
   code: string;
@@ -64,14 +67,17 @@ export interface ServerToClientEvents {
   'draw:undo': (payload: { opId: string }) => void;
   'draw:redo': (op: DrawOp) => void;
   'draw:clear': (op: ClearOp) => void;
+  'draw:fill': (op: FillOp) => void;
   'turn:choices': (payload: { choices: WordChoice[]; remainingMs: number }) => void;
   'turn:word': (payload: { word: string }) => void;
   'notice': (payload: ErrorPayload) => void;
+  /** A live emoji reaction from a player. */
+  'reaction': (payload: { playerId: string; emoji: ReactionEmoji }) => void;
 }
 
 /** Events the client sends. The server validates every payload. */
 export interface ClientToServerEvents {
-  'room:quickPlay': (payload: { nickname: string; language: Language }, ack: Ack<JoinResult>) => void;
+  'room:quickPlay': (payload: { nickname: string; language: WordLanguage }, ack: Ack<JoinResult>) => void;
   'room:create': (payload: CreateRoomPayload, ack: Ack<JoinResult>) => void;
   /** Join a listed room by its display name (or an exact room code). */
   'room:joinByName': (payload: { name: string; nickname: string }, ack: Ack<JoinResult>) => void;
@@ -85,9 +91,19 @@ export interface ClientToServerEvents {
   'draw:undo': () => void;
   'draw:redo': () => void;
   'draw:clear': () => void;
+  'draw:fill': (op: Omit<FillOp, 'kind'>) => void;
+  /** Collaborative mode: hand the pen to the next artist early. */
+  'draw:pass': () => void;
+  'reaction:send': (payload: { emoji: ReactionEmoji }) => void;
+  'vote:cast': (payload: { category: VoteCategory; turnNumber: number }, ack: Ack) => void;
+  /** Team Battle (manual assignment): pick a team in the lobby. */
+  'team:join': (payload: { team: number }, ack: Ack) => void;
+  /** Host: rebalance teams evenly. */
+  'team:balance': (ack: Ack) => void;
   'chat:send': (payload: { text: string }, ack: Ack) => void;
   'mod:kick': (payload: { playerId: string }, ack: Ack) => void;
-  'mod:ban': (payload: { playerId: string }, ack: Ack) => void;
+  /** Room admin: temporary ban from this room only (one of TEMP_BAN_MINUTES). */
+  'mod:ban': (payload: { playerId: string; minutes: number }, ack: Ack) => void;
   'mod:mute': (payload: { playerId: string; muted: boolean }, ack: Ack) => void;
   'mod:voteKick': (payload: { playerId: string }, ack: Ack) => void;
   'mod:reportRoom': (payload: { code: string }, ack: Ack) => void;

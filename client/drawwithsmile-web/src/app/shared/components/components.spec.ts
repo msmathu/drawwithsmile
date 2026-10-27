@@ -61,3 +61,31 @@ describe('roomStatus', () => {
     expect(roomStatus({ ...base, phase: 'gameEnd' })).toBe('Finishing game');
   });
 });
+
+describe('rulesSummary', () => {
+  it('describes custom rules for players who cannot edit them', async () => {
+    const { rulesSummary } = await import('../rules');
+    const { DEFAULT_SETTINGS } = await import('@dws/shared');
+    const lines = rulesSummary({ ...DEFAULT_SETTINGS, mode: 'chaos', chaosRules: ['one-stroke'], teams: true, voting: true, hints: false });
+    const text = lines.join('\n');
+    expect(text).toContain('Chaos mode');
+    expect(text).toContain('One stroke');
+    expect(text).toContain('Team Battle');
+    expect(text).toContain('Vote after each round');
+    expect(text).toContain('no hints');
+  });
+});
+
+describe('local mute', () => {
+  it('hides every message from a muted player, including earlier ones, but keeps system messages', async () => {
+    const { filterMuted } = await import('../../core/services/game.service');
+    const messages: ChatMessage[] = [
+      { id: '1', kind: 'chat', playerId: 'troll', nickname: 'Troll', text: 'rude', ts: 1 },
+      { id: '2', kind: 'system', text: 'Troll joined the room.', ts: 2 },
+      { id: '3', kind: 'chat', playerId: 'friend', nickname: 'Friend', text: 'hi', ts: 3 },
+      { id: '4', kind: 'guessed-chat', playerId: 'troll', nickname: 'Troll', text: 'again', ts: 4 },
+    ];
+    expect(filterMuted(messages, new Set(['troll'])).map((m) => m.id)).toEqual(['2', '3']);
+    expect(filterMuted(messages, new Set()).map((m) => m.id)).toEqual(['1', '2', '3', '4']);
+  });
+});

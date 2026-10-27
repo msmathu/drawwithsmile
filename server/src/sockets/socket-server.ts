@@ -2,6 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 import {
   DEFAULT_SETTINGS,
+  validateSettings,
   LIMITS,
   type Ack,
   type ClientToServerEvents,
@@ -13,6 +14,8 @@ import type { AppConfig } from '../config/env.js';
 import type { RoomOutput } from '../models/room.js';
 import type { Room } from '../models/room.js';
 import type { PersistenceService } from '../services/persistence.service.js';
+import type { ModerationService } from '../services/moderation.service.js';
+import type { ProfileService } from '../services/profile.service.js';
 import { RoomManager } from '../services/room-manager.js';
 import type { SessionService } from '../services/session.service.js';
 import type { WordService } from '../services/word.service.js';
@@ -24,13 +27,18 @@ import {
   chatSchema,
   chooseWordSchema,
   createRoomSchema,
+  fillSchema,
   joinByNameSchema,
   joinRoomSchema,
+  banSchema,
   muteSchema,
   parsePayload,
   playerTargetSchema,
   quickPlaySchema,
+  reactionSchema,
   reportSchema,
+  teamSchema,
+  voteSchema,
   roomCodeSchema,
   settingsSchema,
   strokeChunkSchema,
@@ -50,6 +58,8 @@ export interface SocketContext {
   sessions: SessionService;
   words: WordService;
   persistence: PersistenceService;
+  profiles: ProfileService;
+  moderation: ModerationService;
 }
 
 const channel = (code: string) => `room:${code}`;
@@ -64,7 +74,9 @@ function createLimiters(roomActionBurst: number) {
     chat: new RateLimiter(5, 1), // messages per player
     moderation: new RateLimiter(5, 0.1),
     reports: new RateLimiter(3, 1 / 60),
-    lobby: new RateLimiter(10, 1), // start/settings/choose per player
+    lobby: new RateLimiter(10, 1), // start/settings/choose/team per player
+    reactions: new RateLimiter(6, 2), // emoji reactions per player
+    votes: new RateLimiter(10, 2),
   };
 }
 
@@ -88,6 +100,8 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
   });
 
   const presence = new Map<string, string>(); // playerId -> socket id
+  /** Last address each player connected from (kept in memory only, for bans). */
+  const lastIp = new Map<string, string>();
   const connectionsPerIp = new Map<string, number>();
   const limiters = createLimiters(config.roomActionBurst);
   const lastResync = new Map<string, number>();
@@ -129,6 +143,9 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
     },
   });
 
+  // A changed avatar/title shows up in the player's current room straight away.
+  ctx.profiles.onChange((playerId, look) => rooms.roomOf(playerId)?.setLook(playerId, look));
+
   const pruneTimer = setInterval(() => {
     for (const limiter of Object.values(limiters)) limiter.prune();
   }, 60_000);
@@ -139,6 +156,7 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
     const playerId = ctx.sessions.verify((socket.handshake.auth as { token?: unknown } | undefined)?.token);
     if (!playerId) return next(new Error('unauthorized'));
     const ip = clientIp(socket.handshake.headers['x-forwarded-for'], socket.handshake.address, config.trustProxy);
+    if (ctx.moderation.isBanned(playerId, ip)) return next(new Error('banned'));
     if ((connectionsPerIp.get(ip) ?? 0) >= config.maxConnectionsPerIp) return next(new Error('too-many-connections'));
     socket.data = { playerId, ip };
     next();
@@ -147,6 +165,7 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
   io.on('connection', (socket: IoSocket) => {
     const { playerId, ip } = socket.data;
     connectionsPerIp.set(ip, (connectionsPerIp.get(ip) ?? 0) + 1);
+    lastIp.set(playerId, ip);
 
     // One live connection per player: a new tab/device replaces the old one.
     const previous = presence.get(playerId);
@@ -165,6 +184,8 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
       existing.syncPlayer(playerId);
     }
 
+    // Load the saved avatar/title in the background; the room updates when it arrives.
+    void ctx.profiles.load(playerId);
     registerHandlers(socket);
 
     socket.on('disconnect', () => {
@@ -192,6 +213,31 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
     }
   }
 
+  /** Like respond(), for handlers that need to wait for the database. */
+  function respondAsync<T>(socket: IoSocket, ack: unknown, fn: () => Promise<T>): void {
+    const cb = (typeof ack === 'function' ? ack : noop) as Ack<T>;
+    fn().then(
+      (data) => cb({ ok: true, data }),
+      (err: unknown) => {
+        if (!(err instanceof GameError)) logger.error('Socket handler failed', { err, playerId: socket.data.playerId });
+        cb({ ok: false, error: toErrorPayload(err) });
+      },
+    );
+  }
+
+  /** Removes a permanently banned player (and anyone on the same banned connection) from the game. */
+  function enforceBan(bannedId: string): void {
+    for (const socket of io.sockets.sockets.values()) {
+      if (!ctx.moderation.isBanned(socket.data.playerId, socket.data.ip)) continue;
+      const room = rooms.roomOf(socket.data.playerId);
+      if (room) room.removePlayer(socket.data.playerId, 'auto-banned');
+      else socket.emit('room:kicked', { reason: 'You have been banned from DrawWithSmile because many players reported you.' });
+      socket.disconnect(true);
+    }
+    // Also remove them if they are only "offline" in a room's reconnect grace period.
+    rooms.roomOf(bannedId)?.removePlayer(bannedId, 'auto-banned');
+  }
+
   function limit(limiter: RateLimiter, key: string, message = 'You are doing that too often. Please slow down.'): void {
     if (!limiter.take(key)) throw new GameError('rate-limited', message);
   }
@@ -205,7 +251,7 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
   function enterRoom(socket: IoSocket, room: Room, nickname: string): { code: string } {
     const { playerId } = socket.data;
     const previous = rooms.roomOf(playerId);
-    rooms.join(room, playerId, nickname);
+    rooms.join(room, playerId, nickname, ctx.profiles.look(playerId), ctx.moderation.ipKey(socket.data.ip));
     if (previous && previous !== room) void socket.leave(channel(previous.code));
     void socket.join(channel(room.code));
     room.syncPlayer(playerId);
@@ -240,7 +286,7 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
         if (current?.visibility === 'public' && current.settings.language === language) {
           return enterRoom(socket, current, nickname);
         }
-        const room = rooms.findPublicRoom(language, playerId) ?? rooms.create('public', { ...DEFAULT_SETTINGS, language });
+        const room = rooms.findPublicRoom(language, playerId, ctx.moderation.ipKey(ip)) ?? rooms.create('public', { ...DEFAULT_SETTINGS, language });
         return enterRoom(socket, room, nickname);
       }),
     );
@@ -249,7 +295,10 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
       respond(socket, ack, () => {
         limit(limiters.rooms, ip);
         const { nickname, visibility, name, listed, settings } = parsePayload(createRoomSchema, payload);
-        const room = rooms.create(visibility, { ...DEFAULT_SETTINGS, ...settings }, { name, listed, creatorId: playerId });
+        const rules = { ...DEFAULT_SETTINGS, ...settings };
+        const problem = validateSettings(rules);
+        if (problem) throw new GameError('bad-request', problem);
+        const room = rooms.create(visibility, rules, { name, listed, creatorId: playerId });
         try {
           return enterRoom(socket, room, nickname);
         } catch (err) {
@@ -325,6 +374,53 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
         room.drawChunk(playerId, parsePayload(strokeChunkSchema, payload));
       }),
     );
+    socket.on('draw:pass', () =>
+      drawing(socket, (room) => {
+        if (limiters.drawActions.take(playerId)) room.passPen(playerId);
+      }),
+    );
+
+    socket.on('reaction:send', (payload) => {
+      // Fire-and-forget: invalid or too-frequent reactions are simply dropped.
+      if (!limiters.reactions.take(playerId)) return;
+      try {
+        rooms.roomOf(playerId)?.react(playerId, parsePayload(reactionSchema, payload).emoji);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    socket.on('vote:cast', (payload, ack) =>
+      respond(socket, ack, () => {
+        limit(limiters.votes, playerId);
+        const { category, turnNumber } = parsePayload(voteSchema, payload);
+        currentRoom(playerId).castVote(playerId, category, turnNumber);
+        return null;
+      }),
+    );
+
+    socket.on('team:join', (payload, ack) =>
+      respond(socket, ack, () => {
+        limit(limiters.lobby, playerId);
+        currentRoom(playerId).joinTeam(playerId, parsePayload(teamSchema, payload).team);
+        return null;
+      }),
+    );
+
+    socket.on('team:balance', (ack) =>
+      respond(socket, ack, () => {
+        limit(limiters.lobby, playerId);
+        currentRoom(playerId).balanceTeams(playerId);
+        return null;
+      }),
+    );
+
+    socket.on('draw:fill', (payload) =>
+      drawing(socket, (room) => {
+        if (!limiters.drawActions.take(playerId)) throw new GameError('rate-limited', 'Filling too fast.');
+        room.fill(playerId, parsePayload(fillSchema, payload));
+      }),
+    );
     socket.on('draw:undo', () =>
       drawing(socket, (room) => {
         if (limiters.drawActions.take(playerId)) room.undo(playerId);
@@ -360,7 +456,8 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
     socket.on('mod:ban', (payload, ack) =>
       respond(socket, ack, () => {
         limit(limiters.moderation, playerId);
-        currentRoom(playerId).kick(playerId, parsePayload(playerTargetSchema, payload).playerId, true);
+        const { playerId: target, minutes } = parsePayload(banSchema, payload);
+        currentRoom(playerId).kick(playerId, target, minutes);
         return null;
       }),
     );
@@ -402,21 +499,25 @@ export function attachSocketServer(httpServer: HttpServer, ctx: SocketContext): 
     );
 
     socket.on('mod:report', (payload, ack) =>
-      respond(socket, ack, () => {
+      respondAsync(socket, ack, async () => {
         limit(limiters.reports, playerId, 'You have sent several reports recently. Please wait a little.');
         const report = parsePayload(reportSchema, payload);
         if (report.playerId === playerId) throw new GameError('bad-request', 'You cannot report yourself.');
         const room = currentRoom(playerId);
         const nickname = room.playerNickname(report.playerId);
         if (!nickname) throw new GameError('not-in-room', 'That player is not in this room.');
-        ctx.persistence.recordReport({
+        const outcome = await ctx.moderation.report({
           reporterId: playerId,
+          reporterIp: ip,
           reportedId: report.playerId,
+          reportedIp: lastIp.get(report.playerId) ?? null,
           reportedNickname: nickname,
           roomCode: room.code,
           reason: report.reason,
           details: report.details,
         });
+        if (outcome.duplicate) throw new GameError('bad-request', 'You have already reported this player.');
+        if (outcome.banned) enforceBan(report.playerId);
         return null;
       }),
     );

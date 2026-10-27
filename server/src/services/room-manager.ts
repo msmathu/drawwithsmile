@@ -3,13 +3,13 @@ import {
   isValidRoomCode,
   normalizeRoomCode,
   roomNameKey,
-  type Language,
+  type WordLanguage,
   type RoomDirectory,
   type RoomListing,
   type RoomSettings,
   type RoomVisibility,
 } from '@dws/shared';
-import { Room, type RoomHooks, type RoomOutput } from '../models/room.js';
+import { Room, type PlayerLook, type RoomHooks, type RoomOutput } from '../models/room.js';
 import { GameError } from '../utils/errors.js';
 import { generateRoomCode, pickRandom } from '../utils/ids.js';
 import type { Logger } from '../utils/logger.js';
@@ -129,11 +129,11 @@ export class RoomManager {
    * Quick-play matchmaking: a public room in the player's language with space.
    * Prefers fuller rooms where people are waiting or playing an early round.
    */
-  findPublicRoom(language: Language, playerId: string): Room | undefined {
+  findPublicRoom(language: WordLanguage, playerId: string, ipKey: string | null = null): Room | undefined {
     let best: Room | undefined;
     let bestScore = -Infinity;
     for (const room of this.rooms.values()) {
-      if (room.visibility !== 'public' || room.settings.language !== language || !room.canAccept(playerId)) continue;
+      if (room.visibility !== 'public' || room.settings.language !== language || !room.canAccept(playerId, ipKey)) continue;
       if (room.size >= room.settings.maxPlayers || room.phase === 'gameEnd') continue;
       const roundsLeft = room.phase === 'lobby' ? room.settings.rounds : room.settings.rounds - room.currentRound;
       const score = room.connectedCount * 10 + roundsLeft * 3 + (room.phase === 'lobby' ? 5 : 0);
@@ -146,13 +146,13 @@ export class RoomManager {
   }
 
   /** Joins a room, leaving any other room first. */
-  join(room: Room, playerId: string, nickname: string): 'joined' | 'rejoined' {
+  join(room: Room, playerId: string, nickname: string, look?: PlayerLook, ipKey: string | null = null): 'joined' | 'rejoined' {
     const current = this.roomOf(playerId);
     if (current && current !== room) {
-      room.assertCanJoin(playerId); // validate before leaving the old room
+      room.assertCanJoin(playerId, ipKey); // validate before leaving the old room
       current.removePlayer(playerId, 'left');
     }
-    const result = room.join(playerId, nickname);
+    const result = room.join(playerId, nickname, look, ipKey);
     this.playerRooms.set(playerId, room.code);
     return result;
   }

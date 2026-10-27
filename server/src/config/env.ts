@@ -29,6 +29,8 @@ const EnvSchema = z.object({
   MAX_CONNECTIONS_PER_IP: z.coerce.number().int().min(1).max(1000).default(50),
   /** Burst of create/join/quick-play actions allowed per IP (shared NATs: schools, offices). */
   ROOM_ACTION_BURST: z.coerce.number().int().min(1).max(1000).default(20),
+  /** A player reported by MORE than this many different players is banned permanently. */
+  AUTO_BAN_REPORTS: z.coerce.number().int().min(1).max(1000).default(10),
 });
 
 export interface AppConfig {
@@ -51,6 +53,7 @@ export interface AppConfig {
   serveClientDir?: string;
   maxConnectionsPerIp: number;
   roomActionBurst: number;
+  autoBanReports: number;
 }
 
 const DEV_SECRET = 'dev-only-insecure-secret-change-me';
@@ -94,6 +97,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     serveClientDir: e.SERVE_CLIENT_DIR,
     maxConnectionsPerIp: e.MAX_CONNECTIONS_PER_IP,
     roomActionBurst: e.ROOM_ACTION_BURST,
+    autoBanReports: e.AUTO_BAN_REPORTS,
   };
 }
 

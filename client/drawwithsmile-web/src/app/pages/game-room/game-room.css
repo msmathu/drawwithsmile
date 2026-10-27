@@ -7,16 +7,27 @@
 .game {
   flex: 1;
   display: grid;
-  gap: 10px;
-  padding: 0 10px 10px;
-  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  gap: 8px;
+  padding: 0 8px 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: 'bar' 'stage' 'strip' 'players' 'chat';
-  grid-template-rows: auto auto auto auto minmax(220px, 1fr);
+  grid-template-areas: 'bar' 'teams' 'stage' 'bottom';
+  /* Phones: everything fits one screen; the chat/players area takes what is left. */
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  /* Fills the screen under the app header (no fixed pixel guesses). */
+  height: 100%;
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
   min-height: 0;
+}
+
+.bottom {
+  grid-area: bottom;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 8px;
+  min-height: 150px;
 }
 
 .bar {
@@ -62,63 +73,42 @@
 }
 
 .players {
-  grid-area: players;
-  display: none;
+  display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.players.open {
+.players-head {
   display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: var(--grape);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: none;
+}
+
+.leave-x {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  font-size: 0.9rem;
 }
 
 .chat {
-  grid-area: chat;
   display: flex;
   min-height: 0;
 }
 
 .chat app-chat-panel {
   flex: 1;
-}
-
-.strip {
-  grid-area: strip;
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  align-items: center;
-  padding-bottom: 2px;
-}
-
-.mini {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px 2px 3px;
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  background: #fff;
-  white-space: nowrap;
-  font-size: 0.85rem;
-}
-
-.mini.drawing {
-  background: #e3eeff;
-}
-
-.mini.guessed {
-  background: #dcf8ea;
-}
-
-.mini.offline {
-  opacity: 0.5;
-}
-
-.mini-name {
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .leave {
@@ -212,21 +202,242 @@
   color: var(--ink-soft);
 }
 
+/* Phones: keep the canvas small enough to leave room for chat + players. */
+.stage {
+  max-width: calc((100dvh - 400px) * 4 / 3);
+  min-width: min(100%, 260px);
+}
+
+@media (max-width: 959px) {
+  .players .leave {
+    display: none;
+  }
+  .bar {
+    padding: 4px 8px;
+  }
+  .reactions .reaction {
+    width: 38px;
+    height: 38px;
+    font-size: 1.15rem;
+  }
+  .stage {
+    gap: 6px;
+  }
+  .chaos,
+  .artists {
+    padding: 3px 8px;
+    font-size: 0.8rem;
+  }
+}
+
 @media (min-width: 960px) {
   .game {
     grid-template-columns: 230px minmax(0, 1fr) 320px;
-    grid-template-rows: auto minmax(0, 1fr);
-    grid-template-areas: 'bar bar bar' 'players stage chat';
-    height: calc(100dvh - 64px);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: 'bar bar bar' 'teams teams teams' 'players stage chat';
+    height: 100%;
+  }
+  /* Desktop: chat and players go back to their own columns. */
+  .bottom {
+    display: contents;
   }
   .players {
-    display: flex;
-    overflow-y: auto;
+    grid-area: players;
   }
-  .strip {
+  .chat {
+    grid-area: chat;
+  }
+  .players-head {
+    display: none;
+  }
+  .leave-x {
     display: none;
   }
   .stage {
     max-width: calc((100dvh - 230px) * 4 / 3);
   }
+}
+
+.team-bar {
+  grid-area: teams;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.team-score {
+  color: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-weight: 700;
+}
+
+.team-score.mine {
+  box-shadow: 0 0 0 3px var(--sun);
+}
+
+.lang {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: #e3eeff;
+  color: var(--ink);
+}
+
+.chaos,
+.artists {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  font-size: 0.9rem;
+}
+
+.chaos {
+  background: #f3e8ff;
+}
+
+.artists {
+  background: #e3f7f4;
+}
+
+.artist {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 2px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+}
+
+.artist.holding {
+  border-color: var(--ink);
+  background: var(--sun);
+  font-weight: 800;
+}
+
+.reactions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.reaction {
+  position: relative;
+  font-size: 1.5rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: #fff;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.reaction:active {
+  transform: scale(0.9);
+}
+
+.reaction small {
+  position: absolute;
+  right: -4px;
+  top: -6px;
+  font-size: 0.7rem;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 5px;
+}
+
+.floaters {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.floater {
+  position: absolute;
+  bottom: 0;
+  font-size: 2rem;
+  animation: float-up 2.4s ease-out forwards;
+}
+
+@keyframes float-up {
+  from {
+    transform: translateY(0) scale(0.8);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-320px) scale(1.3);
+    opacity: 0;
+  }
+}
+
+.reaction-summary {
+  display: flex;
+  gap: 10px;
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.voting {
+  justify-content: flex-start;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.candidate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+}
+
+.candidate.mine {
+  background: #fff7dc;
+}
+
+.candidate img,
+.no-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.no-thumb {
+  display: grid;
+  place-items: center;
+  font-size: 2rem;
+}
+
+.vote-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.vote-buttons .voted {
+  background: var(--sun);
+}
+
+.win {
+  background: var(--sun);
 }

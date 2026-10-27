@@ -8,10 +8,17 @@
 - **Private rooms:** join by room name or 8-character code / invite link. "View all private rooms" has search and room-name reporting. A private room can be hidden from the list (invite only). The host controls settings and can kick, ban or mute.
 - **Join any time:** new players can enter a game in progress. They guess right away and draw from the next round.
 - **Server-authoritative game:** word choice, masked hints, guess checking, timers, scoring and drawer rotation all run on the server.
-- **Drawing tools:** 16 colours, 5 brush sizes, eraser, undo, redo and clear. Mouse, touch and stylus all work through Pointer Events.
+- **Drawing tools:** 16 colours, 5 brush sizes, eraser, paint-bucket fill, undo, redo and clear. A private practice canvas in the lobby lets you draw while waiting. Mouse, touch and stylus all work through Pointer Events.
 - **Recovery:** players can reconnect, refresh mid-turn and keep the drawing, and get the history if they rejoin late.
 - **Progress:** guest profiles with no sign-up, game history, a leaderboard, statistics and achievements.
-- **Moderation:** chat filter, rate limits, reports, mute for me, host kick/ban/mute, and vote-kick in public rooms.
+- **Custom room rules:** the host sets draw time, rounds, players, words, language, hints, late joining and every mode below. Rules are validated on the server and locked during a game.
+- **Chaos Drawing mode:** invisible ink, tiny palette, mirror hands, wobbly brush and one-stroke challenges, alone or as a random mix each turn.
+- **One drawing, multiple artists:** 2–4 artists share the pen in turns on the same canvas, while everyone else guesses.
+- **Live reactions & voting:** 😂 ❤️ 🔥 👏 🤔 float over the canvas. After each round players vote for the funniest, most creative and best-teamwork drawing, with an optional bonus.
+- **Team Battle:** 2–4 teams with automatic or manual selection, total or average scoring, team bonuses and balancing.
+- **Language Battle:** English, Tamil, or both mixed. Words have curated accepted answers, such as transliterations ("yaanai") and translations ("elephant").
+- **Unlockable avatars & titles:** 10 extra SVG avatars and 9 titles, unlocked by achievements that the server validates.
+- **Moderation:** chat filter, rate limits, mute for me (hides all of that player's messages and reactions), reports (once per player), host kick/ban of anyone at any time, vote-kick in public rooms, and a **permanent player + IP ban after more than 10 different players report someone**.
 - **Budget: $0.** Everything uses open-source software and free hosting tiers.
 
 ## Project layout
@@ -120,7 +127,7 @@ The short version is below. Every step is in [docs/DEPLOYMENT.md](docs/DEPLOYMEN
 
 ## Future improvements
 
-Redis adapter + sticky sessions for multiple instances. Spectator mode. Fill/bucket tool. An admin dashboard for reports. Larger community word lists and more languages. Optional accounts (for example with Supabase Auth's free tier) to sync progress across devices. Custom word packs for private rooms. Load testing with a socket bot script.
+Redis adapter + sticky sessions for multiple instances. Spectator mode. Team Battle combined with collaborative drawing. Chaos options in the Create Room dialog for public rooms. An admin dashboard for reports. Larger community word lists and more languages. Optional accounts (for example with Supabase Auth's free tier) to sync progress across devices. Custom word packs for private rooms. Load testing with a socket bot script.
 
 ## License
 

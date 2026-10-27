@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import type { Language } from '@dws/shared';
+import type { WordLanguage } from '@dws/shared';
 import { StorageService } from './storage.service';
 
 const ADJECTIVES = ['Happy', 'Sunny', 'Jolly', 'Brave', 'Clever', 'Swift', 'Cosmic', 'Lucky', 'Bubbly', 'Zippy', 'Cheery', 'Mighty'];
@@ -16,7 +16,7 @@ export class PreferencesService {
   private readonly storage = inject(StorageService);
 
   readonly nickname = signal(this.storage.get('dws.nickname') ?? '');
-  readonly language = signal<Language>(this.storage.get('dws.language') === 'ta' ? 'ta' : 'en');
+  readonly language = signal<WordLanguage>(parseLanguage(this.storage.get('dws.language')));
   readonly sound = signal(this.storage.get('dws.sound') !== 'off');
 
   setNickname(value: string): void {
@@ -24,7 +24,7 @@ export class PreferencesService {
     this.storage.set('dws.nickname', value);
   }
 
-  setLanguage(value: Language): void {
+  setLanguage(value: WordLanguage): void {
     this.language.set(value);
     this.storage.set('dws.language', value);
   }
@@ -33,4 +33,8 @@ export class PreferencesService {
     this.sound.set(on);
     this.storage.set('dws.sound', on ? 'on' : 'off');
   }
+}
+
+export function parseLanguage(value: string | null): WordLanguage {
+  return value === 'ta' || value === 'mixed' ? value : 'en';
 }

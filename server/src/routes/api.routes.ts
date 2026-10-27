@@ -12,6 +12,8 @@ export function apiRoutes(deps: ApiDeps): Router {
   router.get('/rooms', controller.rooms);
   router.get('/leaderboard', asyncHandler(controller.leaderboard));
   router.get('/me/stats', requireSession(deps.sessions), asyncHandler(controller.myStats));
+  router.get('/me/profile', requireSession(deps.sessions), asyncHandler(controller.myProfile));
+  router.post('/me/profile', requireSession(deps.sessions), asyncHandler(controller.updateProfile));
 
   return router;
 }

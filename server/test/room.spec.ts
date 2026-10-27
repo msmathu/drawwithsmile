@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TIMINGS, type ChatMessage, type RoomState } from '@dws/shared';
+import { LIMITS, TIMINGS, type ChatMessage, type RoomState } from '@dws/shared';
 import { GameError } from '../src/utils/errors.js';
 import { createRoomHarness, flush, P1, P2, P3 } from './helpers.js';
 
@@ -334,6 +334,26 @@ describe('Drawing permissions and history', () => {
     expectGameError(() => room.drawChunk(drawer, chunk('strokeA')), 'bad-request'); // id reuse
   });
 
+  it('accepts paint-bucket fills from the drawer only, with undo/redo and a per-turn limit', () => {
+    const { room, receivedBy } = startTwoPlayerGame();
+    const drawer = room.currentDrawerId!;
+    const guesser = drawer === P1 ? P2 : P1;
+    room.chooseWord(drawer, 0);
+    const fill = { id: 'fill0001', color: '#facc15', x: 5000, y: 5000 };
+    expectGameError(() => room.fill(guesser, fill), 'not-drawer');
+    room.fill(drawer, fill);
+    expect(receivedBy(guesser, 'draw:fill')).toHaveLength(1);
+    expect(receivedBy(drawer, 'draw:fill')).toHaveLength(0);
+    expect(room.drawHistory()).toEqual([{ kind: 'fill', ...fill }]);
+    room.undo(drawer);
+    expect(room.drawHistory()).toEqual([]);
+    room.redo(drawer);
+    expect(room.drawHistory().map((o) => o.kind)).toEqual(['fill']);
+    expectGameError(() => room.fill(drawer, fill), 'bad-request'); // id reuse
+    for (let i = 1; i < LIMITS.MAX_FILLS_PER_TURN; i++) room.fill(drawer, { ...fill, id: `bulk${String(i).padStart(4, '0')}` });
+    expectGameError(() => room.fill(drawer, { ...fill, id: 'fillXXXX' }), 'bad-request');
+  });
+
   it('clears the drawing when the next turn starts', () => {
     const { room } = startTwoPlayerGame();
     const drawer = room.currentDrawerId!;
@@ -386,7 +406,7 @@ describe('Public rooms and moderation', () => {
     expectGameError(() => room.kick(P2, P3, false), 'not-host');
     room.kick(P1, P2, false);
     expect(room.canAccept(P2)).toBe(true);
-    room.kick(P1, P3, true);
+    room.kick(P1, P3, 5);
     expect(room.canAccept(P3)).toBe(false);
     expect(removed.map((r) => r.playerId)).toEqual([P2, P3]);
   });
