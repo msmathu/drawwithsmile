@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta
       name="description"
-      content="DrawWithSmile is a free multiplayer drawing and guessing game. Play with people worldwide or create a private room for friends. Works on phones, tablets and computers."
+      content="Free online drawing and guessing game. Play with friends in a private room or with players worldwide. No download, works on phone and PC."
     />
     <link rel="canonical" href="https://drawwithsmile.onrender.com/" />
     <!-- Link previews (WhatsApp, Instagram, Facebook, X) -->
@@ -49,13 +49,16 @@
     <link rel="manifest" href="manifest.webmanifest" />
   </head>
   <body>
-    <app-root></app-root>
-    <noscript>
-      <h1>DrawWithSmile — free online drawing &amp; guessing game</h1>
-      <p>One player draws a secret word, everyone else races to guess it in the chat. Play with people worldwide or
-        create a private room for up to 16 friends. Chaos Mode, Team Battle, live reactions and English &amp; Tamil
-        (தமிழ்) words. Free, no download, works on phones and computers.</p>
-      <p>DrawWithSmile needs JavaScript to run.</p>
-    </noscript>
+    <!-- Shown until the app starts (and to crawlers that do not run JavaScript); Angular replaces it. -->
+    <app-root>
+      <main style="max-width: 560px; margin: 15vh auto 0; padding: 0 16px; text-align: center; font-family: system-ui, sans-serif; color: #1f2544">
+        <h1 style="font-size: 1.6rem">DrawWithSmile — free online drawing &amp; guessing game</h1>
+        <p>One player draws a secret word, everyone else races to guess it in the chat. Play with people worldwide or
+          create a private room for up to 16 friends. Chaos Mode, Team Battle, live reactions and English &amp; Tamil
+          (தமிழ்) words. Free, no download, works on phones and computers.</p>
+        <p>Loading the game…</p>
+      </main>
+    </app-root>
+    <noscript>DrawWithSmile needs JavaScript to run.</noscript>
   </body>
 </html>
